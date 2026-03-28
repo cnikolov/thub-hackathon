@@ -1,7 +1,7 @@
 /** Gemini Live API connection, message handling, and tool-call routing. */
 
 import { GoogleGenAI, Modality, Type, ThinkingLevel, StartSensitivity, EndSensitivity } from '@google/genai';
-import type { FishjamAgent, TrackId, IncomingTrackData } from '@fishjam-cloud/js-server-sdk';
+import type { FishjamAgent, FishjamClient, TrackId, IncomingTrackData } from '@fishjam-cloud/js-server-sdk';
 import { buildSystemPrompt } from './prompts';
 import type { ActiveSession } from './sessions';
 import { markComplete, touchActivity } from './sessions';
@@ -53,6 +53,7 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
             silenceDurationMs: 500,
           },
         },
+        contextWindowCompression: { slidingWindow: {} },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
         tools: [
@@ -163,8 +164,9 @@ function handleGeminiMessage(
       if ((session.status as string) === 'complete') break;
 
       if (part.inlineData?.data) {
-        const pcm = Buffer.from(part.inlineData.data, 'base64');
-        try { agent.sendData(agentTrackId, new Uint8Array(pcm)); } catch { /* agent may have disconnected */ }
+        const pcm24 = Buffer.from(part.inlineData.data, 'base64');
+        const pcm16 = downsample24to16(pcm24);
+        try { agent.sendData(agentTrackId, pcm16); } catch { /* agent may have disconnected */ }
       }
       if (part.text?.includes('INTERVIEW_COMPLETE')) {
         markComplete(session);
@@ -252,4 +254,80 @@ function handleGeminiMessage(
       }
     }
   }
+}
+
+// ── Video capture ────────────────────────────────────────────────────────
+
+const VIDEO_CAPTURE_INTERVAL_MS = 1_000; // 1 FPS — Gemini's recommended rate
+
+export function startVideoCapture(session: ActiveSession, fishjamClient: FishjamClient) {
+  let candidateVideoTrackId: string | null = null;
+  let discovering = false;
+
+  async function discoverVideoTrack() {
+    if (discovering) return;
+    discovering = true;
+    try {
+      const room = await fishjamClient.getRoom(session.roomId);
+      for (const peer of room.peers) {
+        if (peer.id === session.agentPeerId) continue;
+        const videoTrack = peer.tracks?.find(
+          (t: any) => t.type === 1 || t.type === 'TRACK_TYPE_VIDEO' || t.metadata?.type === 'camera'
+        );
+        if (videoTrack?.id) {
+          candidateVideoTrackId = videoTrack.id;
+          console.log('[video-capture] Discovered candidate video track:', candidateVideoTrackId);
+          break;
+        }
+      }
+    } catch (err) {
+      console.warn('[video-capture] Failed to discover video track:', err);
+    } finally {
+      discovering = false;
+    }
+  }
+
+  session.videoFrameTimer = setInterval(async () => {
+    if ((session.status as string) === 'complete') {
+      if (session.videoFrameTimer) { clearInterval(session.videoFrameTimer); session.videoFrameTimer = null; }
+      return;
+    }
+    if (!session.geminiSession) return;
+
+    if (!candidateVideoTrackId) {
+      await discoverVideoTrack();
+      if (!candidateVideoTrackId) return;
+    }
+
+    try {
+      const image = await session.agent.captureImage(candidateVideoTrackId, 3_000);
+      const base64 = Buffer.from(image.data).toString('base64');
+      session.geminiSession?.sendRealtimeInput({
+        video: { data: base64, mimeType: image.contentType || 'image/jpeg' },
+      });
+    } catch {
+      candidateVideoTrackId = null;
+    }
+  }, VIDEO_CAPTURE_INTERVAL_MS);
+}
+
+// ── Audio helpers ─────────────────────────────────────────────────────────
+
+/** Downsample PCM16 from 24 kHz to 16 kHz (ratio 3:2) via linear interpolation. */
+function downsample24to16(buf: Buffer): Uint8Array {
+  const srcSamples = buf.length >> 1;
+  const dstSamples = Math.floor((srcSamples * 2) / 3);
+  const out = new Int16Array(dstSamples);
+
+  for (let i = 0; i < dstSamples; i++) {
+    const srcPos = (i * 3) / 2;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+
+    const s0 = buf.readInt16LE(idx * 2);
+    const s1 = idx + 1 < srcSamples ? buf.readInt16LE((idx + 1) * 2) : s0;
+    out[i] = Math.round(s0 + frac * (s1 - s0));
+  }
+
+  return new Uint8Array(out.buffer);
 }

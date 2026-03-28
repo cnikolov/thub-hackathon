@@ -33,7 +33,7 @@ export type ActiveSession = {
   agent: FishjamAgent;
   agentTrackId: TrackId;
   geminiSession: {
-    sendRealtimeInput: (input: { audio?: { data: string; mimeType: string }; text?: string }) => void;
+    sendRealtimeInput: (input: { audio?: { data: string; mimeType: string }; video?: { data: string; mimeType: string }; text?: string }) => void;
     sendToolResponse: (resp: { functionResponses: Array<{ name: string; response: unknown; id?: string }> }) => void;
     close: () => void;
   } | null;
@@ -59,6 +59,8 @@ export type ActiveSession = {
   nudgeSent: boolean;
   /** Handle for the inactivity check interval. */
   inactivityTimer: ReturnType<typeof setInterval> | null;
+  /** Handle for the periodic video-frame capture interval. */
+  videoFrameTimer: ReturnType<typeof setInterval> | null;
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ export const sessions = new Map<string, ActiveSession>();
 
 export function teardown(s: ActiveSession) {
   if (s.inactivityTimer) { clearInterval(s.inactivityTimer); s.inactivityTimer = null; }
+  if (s.videoFrameTimer) { clearInterval(s.videoFrameTimer); s.videoFrameTimer = null; }
   try { s.geminiSession?.close(); } catch { /* */ }
   try { s.agent.disconnect(); } catch { /* */ }
   s.deleteRoom().catch(() => {});
@@ -79,6 +82,7 @@ export function markComplete(session: ActiveSession) {
   session.status = 'complete';
   session.phase = 'complete';
   if (session.inactivityTimer) { clearInterval(session.inactivityTimer); session.inactivityTimer = null; }
+  if (session.videoFrameTimer) { clearInterval(session.videoFrameTimer); session.videoFrameTimer = null; }
   try { session.geminiSession?.close(); } catch { /* */ }
   session.geminiSession = null;
   try { session.agent.disconnect(); } catch { /* */ }

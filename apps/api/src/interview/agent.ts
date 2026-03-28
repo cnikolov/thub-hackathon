@@ -2,7 +2,7 @@
 
 import type { FishjamClient, AgentCallbacks } from '@fishjam-cloud/js-server-sdk';
 import { sessions, teardown, startInactivityMonitor, type ActiveSession, type SessionStatus } from './sessions';
-import { connectGemini, relayTrackData } from './gemini';
+import { connectGemini, relayTrackData, startVideoCapture } from './gemini';
 import { getKickoffMessage } from './prompts';
 
 // ── Query helpers ─────────────────────────────────────────────────────────
@@ -51,11 +51,11 @@ export async function createInterviewSession(
 ): Promise<{ sessionId: string; peerToken: string; agentPeerId: string }> {
   const sessionId = crypto.randomUUID();
 
-  const room = await fishjamClient.createRoom({ roomType: 'audio_only' as const });
+  const room = await fishjamClient.createRoom({ roomType: 'full_feature' as const });
   const deleteRoom = async () => { try { await fishjamClient.deleteRoom(room.id); } catch { /* */ } };
 
   let peerToken: string;
-  let agent: ReturnType<Awaited<ReturnType<FishjamClient['createAgent']>>['agent'] & object> extends infer A ? A : never;
+  let agent: Awaited<ReturnType<FishjamClient['createAgent']>>['agent'];
   let agentPeer: { id: string };
 
   try {
@@ -90,7 +90,7 @@ export async function createInterviewSession(
     throw err;
   }
 
-  const agentTrack = agent.createTrack({ encoding: 'pcm16', sampleRate: 24000, channels: 1 });
+  const agentTrack = agent.createTrack({ encoding: 'pcm16', sampleRate: 16000, channels: 1 });
 
   const session: ActiveSession = {
     sessionId,
@@ -116,6 +116,7 @@ export async function createInterviewSession(
     lastActivityAt: Date.now(),
     nudgeSent: false,
     inactivityTimer: null,
+    videoFrameTimer: null,
   };
   sessions.set(sessionId, session);
 
@@ -128,6 +129,7 @@ export async function createInterviewSession(
   }
 
   relayTrackData(session);
+  startVideoCapture(session, fishjamClient);
 
   return { sessionId, peerToken, agentPeerId: agentPeer.id as string };
 }
