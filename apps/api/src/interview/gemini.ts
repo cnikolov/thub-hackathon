@@ -6,6 +6,7 @@ import { buildSystemPrompt } from './prompts';
 import type { ActiveSession } from './sessions';
 import { markComplete, touchActivity } from './sessions';
 import { broadcast } from './ws';
+import { log } from './logger';
 
 // ── Public ────────────────────────────────────────────────────────────────
 
@@ -151,14 +152,56 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
   }
 }
 
+// ── Server-side VAD — drop silence / noise before it reaches Gemini ──────
+
+const VAD_RMS_THRESHOLD = 400;
+const VAD_HOLD_MS = 300;
+
+const vadState = new Map<string, { speaking: boolean; lastVoiceAt: number }>();
+
+function rms16(pcm: Uint8Array): number {
+  const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const samples = pcm.byteLength >> 1;
+  if (samples === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples; i++) {
+    const s = view.getInt16(i * 2, true);
+    sum += s * s;
+  }
+  return Math.sqrt(sum / samples);
+}
+
+export function clearVad(sessionId: string) {
+  vadState.delete(sessionId);
+}
+
 // ── Audio relay — pipes candidate audio into Gemini ───────────────────────
 
 export function relayTrackData(session: ActiveSession) {
+  vadState.set(session.sessionId, { speaking: false, lastVoiceAt: 0 });
+
   session.agent.on('trackData', (msg: IncomingTrackData) => {
     if (!session.geminiSession || session.status !== 'active') return;
-    // Only relay audio from the candidate peer — ignore the agent's own
-    // audio to prevent a feedback loop where Gemini responds to itself.
     if (msg.peerId === session.agentPeerId) return;
+
+    const pcm = new Uint8Array(msg.data);
+    const energy = rms16(pcm);
+    const vad = vadState.get(session.sessionId)!;
+    const now = Date.now();
+
+    if (energy >= VAD_RMS_THRESHOLD) {
+      if (!vad.speaking) {
+        vad.speaking = true;
+        log(session.sessionId).debug('vad', 'speech start', { rms: Math.round(energy) });
+      }
+      vad.lastVoiceAt = now;
+    } else if (vad.speaking && now - vad.lastVoiceAt > VAD_HOLD_MS) {
+      vad.speaking = false;
+      log(session.sessionId).debug('vad', 'speech end', { silentMs: now - vad.lastVoiceAt });
+    }
+
+    if (!vad.speaking) return;
+
     touchActivity(session);
     try {
       const base64 = Buffer.from(msg.data).toString('base64');
@@ -170,12 +213,20 @@ export function relayTrackData(session: ActiveSession) {
 // ── Audio buffer — accumulates small chunks to avoid playback stutter ────
 
 const BUFFER_FLUSH_MS = 150;
-const audioBuffers = new Map<string, { chunks: Uint8Array[]; timer: ReturnType<typeof setTimeout> | null }>();
+const AUDIO_TRANSIT_MS = 1800;
+
+type AudioBuf = {
+  chunks: Uint8Array[];
+  timer: ReturnType<typeof setTimeout> | null;
+  lastSentAt: number;
+};
+
+const audioBuffers = new Map<string, AudioBuf>();
 
 function bufferAndSendAudio(sessionId: string, agent: FishjamAgent, agentTrackId: TrackId, pcm: Uint8Array) {
   let buf = audioBuffers.get(sessionId);
   if (!buf) {
-    buf = { chunks: [], timer: null };
+    buf = { chunks: [], timer: null, lastSentAt: 0 };
     audioBuffers.set(sessionId, buf);
   }
   buf.chunks.push(pcm);
@@ -200,8 +251,20 @@ function flushAudioBuffer(sessionId: string, agent: FishjamAgent, agentTrackId: 
   }
   buf.chunks.length = 0;
   buf.timer = null;
+  buf.lastSentAt = Date.now();
 
   try { agent.sendData(agentTrackId, merged); } catch { /* agent may have disconnected */ }
+}
+
+/**
+ * Returns ms to wait after the last audio chunk reaches the client.
+ * Covers Fishjam relay + WebRTC jitter buffer + playback latency.
+ */
+export function getAudioDrainDelay(sessionId: string): number {
+  const buf = audioBuffers.get(sessionId);
+  if (!buf || !buf.lastSentAt) return AUDIO_TRANSIT_MS;
+  const elapsed = Date.now() - buf.lastSentAt;
+  return Math.max(0, AUDIO_TRANSIT_MS - elapsed);
 }
 
 export function clearAudioBuffer(sessionId: string) {
@@ -230,6 +293,11 @@ function handleGeminiMessage(
       if ((session.status as string) === 'complete') break;
 
       if (part.inlineData?.data) {
+        if (!session.aiSpeaking) {
+          session.aiSpeaking = true;
+          log(session.sessionId).debug('gemini', 'AI turn started — locking mic');
+          broadcast(session.sessionId, { type: 'lock' });
+        }
         const pcm24 = Buffer.from(part.inlineData.data, 'base64');
         const pcm16 = downsample24to16(pcm24);
         bufferAndSendAudio(session.sessionId, agent, agentTrackId, pcm16);
@@ -244,6 +312,7 @@ function handleGeminiMessage(
 
   const outText = (sc?.outputTranscription as { text?: string } | undefined)?.text;
   if (outText) {
+    log(session.sessionId).info('gemini', `AI said: ${outText.slice(0, 120)}`);
     session.messages.push({ role: 'ai', text: outText });
     if (outText.includes('INTERVIEW_COMPLETE')) {
       markComplete(session);
@@ -253,11 +322,13 @@ function handleGeminiMessage(
 
   const inText = (sc?.inputTranscription as { text?: string } | undefined)?.text;
   if (inText) {
+    log(session.sessionId).info('gemini', `Candidate said: ${inText.slice(0, 120)}`);
     session.messages.push({ role: 'user', text: inText });
     touchActivity(session);
   }
 
   if (sc?.interrupted) {
+    log(session.sessionId).debug('gemini', 'AI interrupted by candidate');
     clearAudioBuffer(session.sessionId);
     try { agent.interruptTrack(agentTrackId); } catch { /* */ }
   }
@@ -265,6 +336,8 @@ function handleGeminiMessage(
   const tc = message.toolCall as { functionCalls?: Array<{ name?: string; args?: unknown; id?: string }> } | undefined;
   if (tc?.functionCalls) {
     for (const call of tc.functionCalls) {
+      log(session.sessionId).info('tool', `${call.name}`, call.args ? { args: call.args } : undefined);
+
       if (call.name === 'updateAssessment') {
         const raw = call.args as Record<string, unknown> | undefined;
         if (raw && typeof raw.score === 'number' && typeof raw.notes === 'string') {
@@ -317,8 +390,16 @@ function handleGeminiMessage(
       }
 
       if (call.name === 'promptCandidate') {
-        session.unmuteRequested = true;
-        broadcast(session.sessionId, { type: 'unmute' });
+        session.aiSpeaking = false;
+        flushAudioBuffer(session.sessionId, agent, agentTrackId);
+        const drainMs = getAudioDrainDelay(session.sessionId);
+        log(session.sessionId).debug('mic', `unmute deferred ${drainMs}ms for audio drain`);
+        setTimeout(() => {
+          if (session.status !== 'active') return;
+          log(session.sessionId).info('mic', 'unmuting candidate');
+          session.unmuteRequested = true;
+          broadcast(session.sessionId, { type: 'unmute' });
+        }, drainMs);
         try {
           session.geminiSession?.sendToolResponse({
             functionResponses: [{ name: 'promptCandidate', response: { status: 'success' }, id: call.id }],

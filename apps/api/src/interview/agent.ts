@@ -4,6 +4,7 @@ import type { FishjamClient, AgentCallbacks } from '@fishjam-cloud/js-server-sdk
 import { sessions, teardown, startInactivityMonitor, type ActiveSession, type SessionStatus } from './sessions';
 import { connectGemini, relayTrackData, startVideoCapture } from './gemini';
 import { getKickoffMessage } from './prompts';
+import { log } from './logger';
 
 // ── Query helpers ─────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ export async function createInterviewSession(
 
     const agentCallbacks: AgentCallbacks = {
       onError: (e) => {
-        console.error(`[Session ${sessionId}] Agent error:`, e);
+        log(sessionId).error('fishjam', 'agent error', { error: String(e) });
         const s = sessions.get(sessionId);
         if (s && s.status !== 'complete') {
           s.status = 'error';
@@ -78,7 +79,7 @@ export async function createInterviewSession(
         }
       },
       onClose: (_code, reason) => {
-        console.log(`[Session ${sessionId}] Agent closed: ${reason}`);
+        log(sessionId).info('fishjam', `agent closed: ${reason}`);
       },
     };
 
@@ -123,12 +124,16 @@ export async function createInterviewSession(
     inactivityTimer: null,
     videoFrameTimer: null,
     unmuteRequested: false,
+    aiSpeaking: false,
   };
   sessions.set(sessionId, session);
+
+  log(sessionId).info('session', 'created', { jobId: params.job.id, step: params.step.title, name: params.name });
 
   await connectGemini(session, params);
 
   if (session.status === 'error') {
+    log(sessionId).error('session', 'gemini connect failed', { error: session.error });
     teardown(session);
     sessions.delete(sessionId);
     throw new Error(session.error ?? 'Failed to initialize AI session');
@@ -137,6 +142,7 @@ export async function createInterviewSession(
   relayTrackData(session);
   startVideoCapture(session, fishjamClient);
 
+  log(sessionId).info('session', 'ready — waiting for candidate to join');
   return { sessionId, peerToken, agentPeerId: agentPeer.id as string };
 }
 
@@ -145,11 +151,12 @@ export function startSession(sessionId: string, stepIndex: number): boolean {
   if (!s?.geminiSession || s.status !== 'waiting') return false;
 
   s.status = 'active';
+  log(sessionId).info('session', 'started — sending kickoff');
   const kickoff = getKickoffMessage(stepIndex);
   try {
     s.geminiSession.sendRealtimeInput({ text: kickoff });
   } catch (err) {
-    console.error(`[Session ${sessionId}] Failed to send kickoff:`, err);
+    log(sessionId).error('session', 'failed to send kickoff', { error: String(err) });
   }
   startInactivityMonitor(s);
   return true;
@@ -158,6 +165,7 @@ export function startSession(sessionId: string, stepIndex: number): boolean {
 export function signalMicMuted(sessionId: string, muted: boolean): boolean {
   const s = sessions.get(sessionId);
   if (!s?.geminiSession || s.status !== 'active') return false;
+  log(sessionId).info('mic', muted ? 'candidate muted' : 'candidate unmuted');
   try {
     if (muted) {
       s.geminiSession.sendRealtimeInput({ audioStreamEnd: true } as any);

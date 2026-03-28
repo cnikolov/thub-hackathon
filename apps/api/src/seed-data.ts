@@ -255,10 +255,9 @@ function strengthsWeaknesses(kind: Parameters<typeof buildResumeText>[0]['kind']
 }
 
 const COMMON_CHECKLIST: ChecklistItem[] = [
-  { id: 'cl-start', label: 'When can you start?', required: true },
+  { id: 'cl-availability', label: 'Availability & notice period', required: true },
   { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
   { id: 'cl-remote', label: 'Are you open to remote / hybrid / on-site?', required: true },
-  { id: 'cl-notice', label: 'What is your notice period?', required: true },
   { id: 'cl-visa', label: 'Do you require visa sponsorship?', required: false },
 ];
 
@@ -364,7 +363,7 @@ COMPANY FACTS (use these to answer questions):
           { id: '2', text: 'How do you handle disagreements with team members?', isMandatory: true },
         ],
         checklist: [
-          { id: 'cl-start', label: 'When can you start?', required: true },
+          { id: 'cl-availability', label: 'Availability & notice period', required: true },
           { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
           { id: 'cl-culture', label: 'What kind of team culture do you thrive in?', required: true },
           { id: 'cl-growth', label: 'What does professional growth look like for you?', required: false },
