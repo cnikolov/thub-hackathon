@@ -19,6 +19,8 @@ export const jobs = sqliteTable('jobs', {
   status: text('status', { enum: ['open', 'closed'] }).default('open'),
   interviewType: text('interviewType', { enum: ['intro', 'technical'] }).default('intro'),
   durationMinutes: integer('durationMinutes').default(15),
+  /** Annual budget in USD for this position. */
+  budget: integer('budget'),
   questions: text('questions', { mode: 'json' }).$type<{ id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[]>(),
   createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

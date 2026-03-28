@@ -52,6 +52,7 @@ type JobSeed = {
   shareCode: string;
   interviewType: 'intro' | 'technical';
   durationMinutes: number;
+  budget: number;
   steps: StepSeed[];
 };
 
@@ -272,6 +273,7 @@ const JOB_SEEDS: JobSeed[] = [
     shareCode: 'REACT24',
     interviewType: 'technical',
     durationMinutes: 30,
+    budget: 60_000,
     steps: [
       {
         stepOrder: 1,
@@ -374,6 +376,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'DESIGN1',
     interviewType: 'intro',
     durationMinutes: 20,
+    budget: 55_000,
     steps: [
       {
         stepOrder: 1,
@@ -410,6 +413,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'BUNDEV',
     interviewType: 'technical',
     durationMinutes: 25,
+    budget: 65_000,
     steps: [
       {
         stepOrder: 1,
@@ -463,6 +467,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'STAFFFE',
     interviewType: 'technical',
     durationMinutes: 35,
+    budget: 95_000,
     steps: [
       {
         stepOrder: 1,
@@ -503,6 +508,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'PLATF1',
     interviewType: 'technical',
     durationMinutes: 28,
+    budget: 70_000,
     steps: [
       {
         stepOrder: 1,
@@ -538,6 +544,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'DATAENG',
     interviewType: 'technical',
     durationMinutes: 30,
+    budget: 68_000,
     steps: [
       {
         stepOrder: 1,
@@ -573,6 +580,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'QA_AUTO',
     interviewType: 'technical',
     durationMinutes: 25,
+    budget: 50_000,
     steps: [
       {
         stepOrder: 1,
@@ -604,6 +612,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'MOBILE1',
     interviewType: 'technical',
     durationMinutes: 28,
+    budget: 62_000,
     steps: [
       {
         stepOrder: 1,
@@ -639,6 +648,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'TPM2024',
     interviewType: 'intro',
     durationMinutes: 30,
+    budget: 75_000,
     steps: [
       {
         stepOrder: 1,
@@ -674,6 +684,7 @@ COMPANY FACTS (use these to answer questions):
     shareCode: 'SECENG1',
     interviewType: 'technical',
     durationMinutes: 30,
+    budget: 72_000,
     steps: [
       {
         stepOrder: 1,
@@ -759,6 +770,7 @@ export async function populateSampleData(db: any, options: { clearFirst?: boolea
         status: 'open' as const,
         interviewType: j.interviewType,
         durationMinutes: j.durationMinutes,
+        budget: j.budget,
         questions: [] as { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[],
         createdAt: new Date(now.getTime() - idx * 60_000),
       })),
