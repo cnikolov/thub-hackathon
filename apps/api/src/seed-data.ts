@@ -1,5 +1,7 @@
 import { projects, jobs, candidates, jobInterviewSteps, candidateStepResults } from './schema';
 
+type ChecklistItem = { id: string; label: string; required: boolean };
+
 type StepSeed = {
   stepOrder: number;
   title: string;
@@ -7,8 +9,39 @@ type StepSeed = {
   interviewType: 'intro' | 'technical';
   durationMinutes: number;
   systemPrompt: string;
+  introPrompt: string;
+  outroPrompt: string;
   questions: { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[];
+  checklist: ChecklistItem[];
 };
+
+// ── Default intro / outro templates ────────────────────────────────────────
+
+const DEFAULT_INTRO_TECHNICAL = `INTRO PHASE — follow these steps in order:
+1. Greet the candidate warmly. Introduce yourself: "Hi! I'm your AI interview assistant and I'll be conducting today's technical round."
+2. Confirm their name: "Before we start, could you confirm your name for me?"
+3. Set expectations in one sentence: tell them this round focuses on technical depth and problem-solving, it will last about [duration] minutes, and they should think out loud.
+4. Ask if they have any quick questions before you begin, then move into the objectives phase.`;
+
+const DEFAULT_INTRO_CULTURE = `INTRO PHASE — follow these steps in order:
+1. Greet the candidate warmly. Introduce yourself: "Hi! I'm your AI interview assistant and I'll be conducting today's conversation."
+2. Confirm their name: "Before we start, could you confirm your name for me?"
+3. Set the tone: "This round is more conversational — I'd love to learn about you, your motivations, and what you're looking for. No trick questions, I promise."
+4. Ask if they have any quick questions, then transition into the objectives phase.`;
+
+const DEFAULT_OUTRO_TECHNICAL = `OUTRO PHASE — follow these steps when all objectives are covered:
+1. Signal the wind-down: "We're coming up on time — great conversation!"
+2. Give brief positive feedback on ONE specific thing they did well (be genuine, not generic).
+3. Ask: "Is there anything you'd like to add or any question about the role or the team?"
+4. Thank them: "Thanks so much for your time today. The team will review everything and be in touch soon."
+5. Say goodbye warmly, then call completeInterview.`;
+
+const DEFAULT_OUTRO_CULTURE = `OUTRO PHASE — follow these steps when all objectives are covered:
+1. Signal the wind-down: "I think we've covered everything I wanted to discuss!"
+2. Ask: "Before we wrap — do you have any questions about the company, the team, or next steps?"
+3. If they ask questions, answer honestly or say "That's a great question — the hiring team will follow up on that."
+4. Thank them warmly: "Really enjoyed this chat. Thanks for being so open — the team will be in touch shortly."
+5. Say goodbye, then call completeInterview.`;
 
 type JobSeed = {
   projectIndex: number;
@@ -22,20 +55,17 @@ type JobSeed = {
   steps: StepSeed[];
 };
 
-const FIRST_NAMES = [
-  'Aarav', 'Priya', 'Marcus', 'Yuki', 'Fatima', 'Diego', 'Elena', 'Kwame', 'Sofia', 'Viktor',
-  'Amara', 'Chen', 'Ingrid', 'Jamal', 'Katarina', 'Luis', 'Mei', 'Noah', 'Olga', 'Pavel',
-  'Quinn', 'Rosa', 'Sanjay', 'Tariq', 'Uma', 'Vera', 'Wei', 'Zara', 'Hassan', 'Isla',
-  'Jonas', 'Keiko', 'Liam', 'Mira', 'Nadia', 'Omar', 'Petra', 'Raj', 'Sven', 'Tessa',
-  'Ada', 'Bruno', 'Chiara', 'Dmitri', 'Esme', 'Finn', 'Greta', 'Hiro', 'Ivy', 'Jun',
-];
-
-const LAST_NAMES = [
-  'Nguyen', 'Patel', 'Okafor', 'Yamamoto', 'Al-Farsi', 'Rivera', 'Volkov', 'Mensah', 'Costa', 'Petrov',
-  'Okonkwo', 'Liu', 'Berg', 'Hassan', 'Novak', 'García', 'Zhang', 'Cohen', 'Ivanova', 'Kowalski',
-  'Murphy', 'Silva', 'Kapoor', 'Benali', 'Nair', 'Kozlov', 'Tanaka', 'Haddad', 'Lindström', 'Osei',
-  'Bakker', 'Santos', 'Fischer', 'Dubois', 'Rossi', 'Khan', 'Johansson', 'Reyes', 'Nielsen', 'Abebe',
-  'Cruz', 'Müller', 'Yılmaz', 'Olsen', 'Popescu', 'Singh', 'Wójcik', 'Kang', 'Flores', 'Varga',
+const FULL_NAMES = [
+  'Logan Kilpatrick', 'Paige Bailey', 'Glenn Cameron', 'Lloyd Hightower', 'Mat Velloso',
+  'Patrick Loeber', 'Omar Sanseviero', 'Thor Schaeff', 'Amanda Casari', 'Benjamin Sadik',
+  'Catayoun Azarm', 'Eloise Carvalho', 'Marco Acunzo', 'Kimoon Kim', 'Xiangzhou Sun',
+  'Guido Marangoni', 'Leon Kukuk', 'Max Hasenohr', 'Tomo Kihara', 'Cristian Popescu',
+  'Jaclyn Konzelmann', 'Lavi Nigam', 'Ander Dobo', 'Eric Windmill', 'Laurence Moroney',
+  'Josh Gordon', 'Karl Weinmeister', 'Dima Dobrynin', 'Harshit Yadav', 'Jahnvi Seth',
+  'Krishma Sood', 'Mick Suraj', 'Mark McDonald', 'Shrestha Mallick', 'Kamil Stanuch',
+  'Piotr Skalski', 'Krzysztof Magiera', 'Maria Eckes', 'Amit Vadi', 'Prince Canuma',
+  'Patryk Fryda', 'Aleksandra Iwan', 'Alicja Gancarz', 'Bartosz Sumper', 'Bohdan Artiukhov',
+  'Sara Robinson', 'Dale Markowitz', 'Priyanka Vergadia', 'Daniel Tatarkin', 'Demis Hassabis',
 ];
 
 const COMPANIES = [
@@ -223,6 +253,14 @@ function strengthsWeaknesses(kind: Parameters<typeof buildResumeText>[0]['kind']
   return { strengths: s[kind][0], weaknesses: s[kind][1] };
 }
 
+const COMMON_CHECKLIST: ChecklistItem[] = [
+  { id: 'cl-start', label: 'When can you start?', required: true },
+  { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
+  { id: 'cl-remote', label: 'Are you open to remote / hybrid / on-site?', required: true },
+  { id: 'cl-notice', label: 'What is your notice period?', required: true },
+  { id: 'cl-visa', label: 'Do you require visa sponsorship?', required: false },
+];
+
 const JOB_SEEDS: JobSeed[] = [
   {
     projectIndex: 0,
@@ -243,9 +281,18 @@ const JOB_SEEDS: JobSeed[] = [
         durationMinutes: 25,
         systemPrompt:
           'You are a senior technical interviewer. Be rigorous but fair. Focus on React fundamentals and system thinking.',
+        introPrompt: DEFAULT_INTRO_TECHNICAL,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
         questions: [
           { id: '1', text: 'Explain useMemo vs useCallback.', isMandatory: true },
           { id: '2', text: 'How do you structure state at scale?', isMandatory: true },
+          { id: '3', text: 'What is your approach to performance optimization in React?', isMandatory: true },
+          { id: '4', text: 'Describe a challenging technical problem you solved recently.', isMandatory: false },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-ts', label: 'Confirm TypeScript proficiency level', required: true },
+          { id: 'cl-test', label: 'Ask about testing practices and coverage approach', required: true },
         ],
       },
       {
@@ -255,7 +302,18 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'intro',
         durationMinutes: 15,
         systemPrompt: 'You are an HR partner; conversational fit and clarity.',
-        questions: [{ id: '1', text: 'What are you looking for in your next role?', isMandatory: true }],
+        introPrompt: DEFAULT_INTRO_CULTURE,
+        outroPrompt: DEFAULT_OUTRO_CULTURE,
+        questions: [
+          { id: '1', text: 'What are you looking for in your next role?', isMandatory: true },
+          { id: '2', text: 'How do you handle disagreements with team members?', isMandatory: true },
+        ],
+        checklist: [
+          { id: 'cl-start', label: 'When can you start?', required: true },
+          { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
+          { id: 'cl-culture', label: 'What kind of team culture do you thrive in?', required: true },
+          { id: 'cl-growth', label: 'What does professional growth look like for you?', required: false },
+        ],
       },
     ],
   },
@@ -276,7 +334,22 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'intro',
         durationMinutes: 20,
         systemPrompt: 'You are a design lead interviewing for craft and communication.',
-        questions: [{ id: '1', text: 'Walk us through your portfolio.', isMandatory: true }],
+        introPrompt: `INTRO PHASE — follow these steps in order:
+1. Greet warmly: "Hi! I'm your AI interview assistant. I'll be walking through your design experience today."
+2. Confirm their name.
+3. Set expectations: "I'd love to hear about your design process, a few portfolio pieces, and how you collaborate with engineering. Should take about 20 minutes."
+4. Transition: "Ready? Let's dive in."`,
+        outroPrompt: DEFAULT_OUTRO_CULTURE,
+        questions: [
+          { id: '1', text: 'Walk us through your portfolio.', isMandatory: true },
+          { id: '2', text: 'How do you approach accessibility in your designs?', isMandatory: true },
+          { id: '3', text: 'Describe your collaboration process with engineers.', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-tools', label: 'Confirm Figma proficiency', required: true },
+          { id: 'cl-ds', label: 'Ask about design system experience', required: true },
+        ],
       },
     ],
   },
@@ -297,7 +370,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 25,
         systemPrompt: 'You are a staff backend engineer interviewing for depth.',
-        questions: [{ id: '1', text: 'How would you model multi-tenant data?', isMandatory: true }],
+        introPrompt: DEFAULT_INTRO_TECHNICAL,
+        outroPrompt: `OUTRO PHASE:
+1. "We've covered a lot of ground — really appreciate the depth of your answers."
+2. Highlight one thing: "Your approach to [specific topic they did well on] was particularly interesting."
+3. Ask: "Any questions about the backend stack or the team?"
+4. Thank them and call completeInterview.`,
+        questions: [
+          { id: '1', text: 'How would you model multi-tenant data?', isMandatory: true },
+          { id: '2', text: 'Explain your approach to error handling in APIs.', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-sql', label: 'Verify SQL proficiency (joins, indexing, migrations)', required: true },
+          { id: 'cl-api', label: 'Discuss REST vs GraphQL experience', required: false },
+        ],
       },
       {
         stepOrder: 2,
@@ -306,7 +393,16 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 20,
         systemPrompt: 'Focus on system design and pragmatic trade-offs.',
+        introPrompt: `INTRO PHASE:
+1. "Welcome back! This round is about system design and architecture decisions."
+2. "I'll walk through a couple of scenarios — just think out loud and walk me through your reasoning."
+3. Transition directly into the first question.`,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
         questions: [{ id: '1', text: 'Describe a production incident you owned end-to-end.', isMandatory: true }],
+        checklist: [
+          { id: 'cl-scale', label: 'Discuss scaling strategies they have used', required: true },
+          { id: 'cl-monitor', label: 'Ask about monitoring and observability practices', required: true },
+        ],
       },
     ],
   },
@@ -327,7 +423,26 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 35,
         systemPrompt: 'Probe for multi-team impact, RFC quality, and technical judgment.',
-        questions: [{ id: '1', text: 'Tell us about a technical decision you championed across teams.', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hi! I'm your AI interview assistant conducting the staff-level technical loop today."
+2. Confirm their name.
+3. Set context: "This round goes beyond coding — I'm interested in how you make technical decisions, influence across teams, and grow other engineers. About 35 minutes."
+4. "Let's start with something you're proud of."`,
+        outroPrompt: `OUTRO PHASE:
+1. "This has been a really insightful conversation — thank you."
+2. Acknowledge depth: "Your experience with [specific leadership/architecture topic] really stood out."
+3. Ask if they have questions about the engineering culture or team structure.
+4. Thank them warmly and call completeInterview.`,
+        questions: [
+          { id: '1', text: 'Tell us about a technical decision you championed across teams.', isMandatory: true },
+          { id: '2', text: 'How do you mentor junior engineers?', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-lead', label: 'Ask about leadership philosophy and team building', required: true },
+          { id: 'cl-arch', label: 'Discuss architecture decision-making process', required: true },
+          { id: 'cl-mentor', label: 'Verify mentoring and code review experience', required: true },
+        ],
       },
     ],
   },
@@ -348,7 +463,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 28,
         systemPrompt: 'Assess practical platform skills and on-call maturity.',
-        questions: [{ id: '1', text: 'How do you balance velocity vs reliability?', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hey! I'm your AI interview assistant. Today we're covering platform engineering and reliability."
+2. Confirm their name.
+3. "I'm interested in real-world experience — pipelines you've built, incidents you've resolved, and how you think about developer experience. About 28 minutes."
+4. "Let's jump in."`,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
+        questions: [
+          { id: '1', text: 'How do you balance velocity vs reliability?', isMandatory: true },
+          { id: '2', text: 'Walk us through a CI/CD pipeline you built.', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-k8s', label: 'Verify Kubernetes hands-on experience', required: true },
+          { id: 'cl-oncall', label: 'Ask about on-call experience and incident response', required: true },
+        ],
       },
     ],
   },
@@ -369,7 +498,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 30,
         systemPrompt: 'Focus on correctness, idempotency, and explaining trade-offs to non-experts.',
-        questions: [{ id: '1', text: 'Walk through a pipeline you owned and how you monitored it.', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hi there! I'm your AI interview assistant for the data engineering round."
+2. Confirm their name.
+3. "We'll talk about pipelines, data modeling, SQL, and how you work with stakeholders. About 30 minutes — think out loud, I love hearing the reasoning."
+4. "Ready? Let's go."`,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
+        questions: [
+          { id: '1', text: 'Walk through a pipeline you owned and how you monitored it.', isMandatory: true },
+          { id: '2', text: 'How do you handle data quality issues?', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-sql', label: 'Confirm advanced SQL proficiency', required: true },
+          { id: 'cl-orch', label: 'Ask about orchestration tools (Airflow, Prefect, etc.)', required: true },
+        ],
       },
     ],
   },
@@ -390,7 +533,17 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 25,
         systemPrompt: 'Evaluate test pyramid thinking and pragmatic coverage.',
-        questions: [{ id: '1', text: 'How do you decide what not to automate?', isMandatory: true }],
+        introPrompt: DEFAULT_INTRO_TECHNICAL,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
+        questions: [
+          { id: '1', text: 'How do you decide what not to automate?', isMandatory: true },
+          { id: '2', text: 'Tell us about a flaky test you debugged.', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-frame', label: 'Confirm Playwright/Cypress hands-on experience', required: true },
+          { id: 'cl-ci', label: 'Discuss CI/CD integration for test suites', required: true },
+        ],
       },
     ],
   },
@@ -411,7 +564,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 28,
         systemPrompt: 'Assess depth on mobile constraints and pragmatic delivery.',
-        questions: [{ id: '1', text: 'Describe how you debug a performance issue in production.', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hey! I'm your AI interview assistant for the mobile engineering round."
+2. Confirm their name.
+3. "We'll cover React Native architecture, native bridging, performance, and your release process. About 28 minutes."
+4. "Let's get started — tell me about your current mobile work."`,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
+        questions: [
+          { id: '1', text: 'Describe how you debug a performance issue in production.', isMandatory: true },
+          { id: '2', text: 'How do you handle native module integration?', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-rn', label: 'Verify React Native vs native experience split', required: true },
+          { id: 'cl-release', label: 'Ask about app store release process and OTA updates', required: true },
+        ],
       },
     ],
   },
@@ -432,7 +599,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'intro',
         durationMinutes: 30,
         systemPrompt: 'Evaluate structured thinking and partnership with engineering.',
-        questions: [{ id: '1', text: 'Tell us about a roadmap you deprioritized and why.', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hi! I'm your AI interview assistant for the TPM scenario round."
+2. Confirm their name.
+3. "This round is about how you handle ambiguity, prioritize, and work with engineering. I'll walk through a few scenarios — think out loud."
+4. "Let's start."`,
+        outroPrompt: DEFAULT_OUTRO_CULTURE,
+        questions: [
+          { id: '1', text: 'Tell us about a roadmap you deprioritized and why.', isMandatory: true },
+          { id: '2', text: 'How do you measure success for a feature launch?', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-tech', label: 'Verify technical depth (can they read code, review PRs?)', required: true },
+          { id: 'cl-metrics', label: 'Ask about metrics frameworks they have used', required: true },
+        ],
       },
     ],
   },
@@ -453,7 +634,21 @@ const JOB_SEEDS: JobSeed[] = [
         interviewType: 'technical',
         durationMinutes: 30,
         systemPrompt: 'Balance rigor with shipping; developer empathy matters.',
-        questions: [{ id: '1', text: 'Walk through how you would threat-model a new payments flow.', isMandatory: true }],
+        introPrompt: `INTRO PHASE:
+1. "Hi! I'm your AI interview assistant for the application security round."
+2. Confirm their name.
+3. "We'll discuss threat modeling, how you prioritize findings, and your approach to working with developers. About 30 minutes."
+4. "Let's dive in — tell me about a recent security review you led."`,
+        outroPrompt: DEFAULT_OUTRO_TECHNICAL,
+        questions: [
+          { id: '1', text: 'Walk through how you would threat-model a new payments flow.', isMandatory: true },
+          { id: '2', text: 'How do you prioritize security findings?', isMandatory: true },
+        ],
+        checklist: [
+          ...COMMON_CHECKLIST,
+          { id: 'cl-owasp', label: 'Discuss OWASP knowledge and practical application', required: true },
+          { id: 'cl-sdlc', label: 'Ask about secure SDLC integration experience', required: true },
+        ],
       },
     ],
   },
@@ -530,7 +725,10 @@ export async function populateSampleData(db: any, options: { clearFirst?: boolea
     interviewType: 'intro' | 'technical';
     durationMinutes: number;
     systemPrompt: string;
+    introPrompt: string | null;
+    outroPrompt: string | null;
     questions: { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[];
+    checklist: ChecklistItem[];
     createdAt: Date;
   }[] = [];
 
@@ -546,7 +744,10 @@ export async function populateSampleData(db: any, options: { clearFirst?: boolea
         interviewType: st.interviewType,
         durationMinutes: st.durationMinutes,
         systemPrompt: st.systemPrompt,
+        introPrompt: st.introPrompt,
+        outroPrompt: st.outroPrompt,
         questions: st.questions,
+        checklist: st.checklist,
         createdAt: new Date(),
       });
     }
@@ -556,11 +757,123 @@ export async function populateSampleData(db: any, options: { clearFirst?: boolea
 
   const candidateRows: (typeof candidates.$inferInsert)[] = [];
 
+  /* ── Featured candidate: Christian Nikolov (real CV) ─────────────── */
+  const christianCV = [
+    'Christian Nikolov',
+    'christian@hackatron.dev · Technical Leader',
+    '',
+    'PROFESSIONAL SUMMARY',
+    'Technical Leader with 10+ years of hands-on experience across the full stack — from .NET and Node.js backends to React and Next.js frontends, underpinned by deep AWS infrastructure expertise. Currently focused on AI-driven tooling, agentic workflows, and helping teams adopt LLM capabilities with production-ready architecture.',
+    '',
+    'WORK EXPERIENCE',
+    '',
+    'Technical Leader — Monterosa (B2B) (2024–Present)',
+    '• Stack: Node.js, React, Next.js, Webpack, Vite — with AWS for backend services and Databricks for data pipelines.',
+    '• Oversee GitLab CI/CD and manage the AWS ecosystem (S3, CloudFront, GraphQL, DynamoDB, API Gateway).',
+    '• Architect APIs using Node and Bun while innovating with internal AI toolsets.',
+    '• Develop proof of concepts — experimenting with SSG, SSR, and various automations.',
+    '• Create internal libraries to simplify processes.',
+    '• Train and support both front-end and back-end teams, including operating a custom automated Google Sheet.',
+    '• Represent Monterosa in daily customer meetings via Zoom/Google Meet, capturing client requirements.',
+    '• Help teams set up agentic codebases and AI-driven workflows so they can move faster.',
+    '',
+    'Technical Leader — Syrenis (B2B) (2020–Dec 2023)',
+    '• Cloud Infrastructure & DevOps: Engineered robust AWS architectures using CDK, Lambda, CloudFormation, S3, EC2, Fargate, VPC, and RDS.',
+    '• Core stack: .NET Core, Node.js, and TypeScript — building and maintaining Web APIs, worker services, and front-end applications.',
+    '• Led development on flagship products while supervising front-end and back-end teams, reporting directly to the CTO.',
+    '• Implemented cost-saving strategies within AWS environments to drive business value.',
+    '• Created the Cookie Scanner, a high-performance tool capable of handling up to one billion pages.',
+    '• Authored articles on company coding standards, SOLID principles, design patterns, and best practices.',
+    '• In charge of delivering releases on time for multiple products.',
+    '',
+    'Technical Lead, Fraud Prevention — NDA Gaming (Biggest Sportsbook in the UK) (2018–2020)',
+    '• Backend: C# with emphasis on F# for core fraud-detection services, Kafka for real-time event streaming.',
+    '• Frontend: vanilla JavaScript for browser fingerprinting, WebSocket management, and WebRTC integration.',
+    '• Built anti-bot systems using browser automation detection, graphics fingerprinting, and device profiling.',
+    '• Developed behaviour-learning models to detect suspicious activity patterns on the platform.',
+    '• Further details under NDA.',
+    '',
+    'Software Developer — Angel Solutions (2016–2018)',
+    '• Built and maintained .NET (C#) applications serving local authorities and schools.',
+    '• Produced SSRS reports calculating school performance metrics — heavy data aggregation at every level.',
+    '• Wrote complex SQL queries to power reporting dashboards for education sector clients.',
+    '',
+    'Software Developer & IT — British Ironwork Centre (2013–2016)',
+    '• First professional role — built and maintained .NET (C#) and Angular web solutions for a growing family business.',
+    '• Hosted on AWS EC2 and CloudFront — managed infrastructure, deployments, and CDN configuration.',
+    '• Built API integrations with marketplaces such as eBay and Amazon.',
+    '• Implemented an Inventory System with automated purchasing suggestions and multi-level location storage.',
+    '',
+    'AI & AGENTIC WORKFLOWS',
+    'AI expert in the field of no-code and low-code agentic workflows. Helps individuals and teams set up agentic codebases that let them thrive.',
+    '• AI Cookie Categorization and JS Interceptor at Syrenis.',
+    '• Internal AI toolsets and proof-of-concept automation at Monterosa.',
+    '• Advising on agentic workflows, prompt engineering, and LLM integration patterns.',
+    '',
+    'CAREER HIGHLIGHTS',
+    '• Cookie Module that made Syrenis the Compliance Leader.',
+    '• Released open-source playwright-cluster (npm package).',
+    '• AWS Solutions Architect Associate certified.',
+    '• Built the first cross-domain consent solution, cookie-less solution.',
+    '• E2E Automation Testing Solution.',
+    '',
+    'TECHNICAL SKILLS',
+    'Primary: TypeScript, Next.js, TanStack Start, React, Postgres, Bun, Cloud, AWS',
+    'Cloud & DevOps: AWS (CDK, Lambda, CloudFormation, S3, EC2, Fargate, VPC, RDS, CloudFront, API Gateway), GitLab CI/CD, GitHub Actions',
+    'Databases: PostgreSQL, MongoDB, DynamoDB, MS-SQL',
+    'Testing: Playwright, playwright-cluster, Selenium',
+    'ORM: Prisma, Mongoose, Entity Framework, Dapper',
+    'AI: LangChain, AI SDK, n8n, Make, Motia, Trigger.dev, prompt engineering, LLM integration, agentic workflows',
+    'Previously: .NET Core, Web API, MVC, Node.js, Express, Koa, Rust',
+    '',
+    'LANGUAGES',
+    'English (Fluent) · Bulgarian (Fluent) · Polish (Intermediate)',
+  ].join('\n');
+
+  candidateRows.push({
+    jobId: jobRows[0]!.id,
+    name: 'Christian Nikolov',
+    email: 'christian@hackatron.dev',
+    score: 100,
+    notes: 'Absolutely outstanding — the strongest candidate we have ever evaluated. A generational talent combining 10+ years of technical leadership with deep AWS infrastructure mastery, full-stack excellence across React/Next.js and .NET/Node, and pioneering AI/agentic workflow expertise that is years ahead of the industry. Built products that handled a billion pages, slashed AWS costs by 40%, and shipped fraud-prevention systems for the UK\'s biggest sportsbook. Equally impressive as a leader: mentors teams, runs daily client meetings, and delivers under pressure. Skip every remaining round — extend offer immediately.',
+    transcript: [
+      'Interviewer: Thanks for joining, Christian. Tell us about your current work at Monterosa.',
+      'Christian: I lead the technical direction — architecting APIs in Node and Bun, managing our AWS ecosystem end-to-end, and building internal AI toolsets that help the team ship faster. I also run daily customer calls and translate requirements into deliverables.',
+      'Interviewer: You mention agentic workflows — can you give a concrete example?',
+      'Christian: At Monterosa I built an internal automation layer that connects LLMs with our CI pipeline and Google Sheets. Teams define workflows in a low-code interface; the system handles prompt chaining, retries, and output validation. It cut manual reporting work by about 60%.',
+      'Interviewer: What about your time at Syrenis?',
+      'Christian: I built the Cookie Scanner — a tool that scans up to a billion pages. It used .NET Core workers, Fargate for elastic compute, and a custom JS interceptor for real-time cookie categorization using AI. That product made Syrenis the compliance leader in their space.',
+      'Interviewer: Impressive. How do you approach cost optimization on AWS?',
+      'Christian: I audit usage patterns, right-size instances, move bursty workloads to Lambda or Fargate Spot, and consolidate storage tiers. At Syrenis we cut monthly AWS spend by roughly 40% without sacrificing reliability.',
+      'Interviewer: And your experience with fraud prevention?',
+      'Christian: At the sportsbook I built anti-bot systems using browser fingerprinting, WebRTC leak detection, and behaviour-learning models in F#. We processed events through Kafka in real time to flag suspicious patterns before they could cause damage.',
+    ].join('\n'),
+    resumeText: christianCV,
+    skillsTags: [
+      'TypeScript', 'React', 'Next.js', 'Node.js', 'Bun', 'AWS',
+      'PostgreSQL', 'DynamoDB', 'Playwright', 'AI/LLM',
+      'Agentic Workflows', 'CI/CD',
+    ],
+    availability: 'Open to opportunities',
+    strengths: [
+      'Full-stack technical leadership',
+      'Deep AWS architecture & cost optimization',
+      'AI & agentic workflow expertise',
+      'Strong mentorship and team building',
+      'Production-scale system delivery',
+    ],
+    weaknesses: [
+      'Less exposure to GCP/Azure (primarily AWS)',
+    ],
+    status: 'shortlisted' as const,
+    createdAt: new Date(now.getTime() + 60_000),
+  });
+
   for (let i = 0; i < 50; i++) {
     const jobIndex = i % jobRows.length;
     const job = jobRows[jobIndex]!;
     const kind = JOB_KINDS[jobIndex]!;
-    const name = `${FIRST_NAMES[i % FIRST_NAMES.length]} ${LAST_NAMES[(i * 3) % LAST_NAMES.length]}`;
+    const name = FULL_NAMES[i % FULL_NAMES.length];
     const email = `seed.candidate.${i + 1}@hackatron.seed`;
     const status = statusForIndex(i);
     const score = scoreForIndex(i, status);

@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { jobs, jobInterviewSteps } from './schema';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { jobs, jobInterviewSteps, interviewAttendance } from './schema';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 const sqlite = new Database('dev.db');
 const db = drizzle(sqlite);
@@ -20,7 +20,10 @@ function syntheticInterviewSteps(job: JobRow) {
       interviewType: job.interviewType,
       durationMinutes: job.durationMinutes,
       systemPrompt: job.systemPrompt,
+      introPrompt: null as string | null,
+      outroPrompt: null as string | null,
       questions: job.questions ?? [],
+      checklist: null as { id: string; label: string; required: boolean }[] | null,
       createdAt: job.createdAt,
       legacy: true as const,
     },
@@ -132,7 +135,10 @@ jobsController.post('/', async (c) => {
           interviewType?: 'intro' | 'technical';
           durationMinutes?: number;
           systemPrompt?: string;
+          introPrompt?: string;
+          outroPrompt?: string;
           questions?: unknown[];
+          checklist?: unknown[];
         };
         await db.insert(jobInterviewSteps).values({
           jobId: job.id,
@@ -142,7 +148,10 @@ jobsController.post('/', async (c) => {
           interviewType: s.interviewType === 'technical' ? 'technical' : 'intro',
           durationMinutes: s.durationMinutes ?? 15,
           systemPrompt: String(s.systemPrompt ?? firstPrompt).trim(),
+          introPrompt: s.introPrompt?.trim() || null,
+          outroPrompt: s.outroPrompt?.trim() || null,
           questions: (s.questions as JobRow['questions']) ?? [],
+          checklist: (s.checklist as { id: string; label: string; required: boolean }[]) ?? [],
           createdAt: new Date(),
         });
       }
@@ -155,7 +164,10 @@ jobsController.post('/', async (c) => {
         interviewType: body.interviewType || 'intro',
         durationMinutes: body.durationMinutes || 15,
         systemPrompt: String(body.systemPrompt ?? firstPrompt),
+        introPrompt: null,
+        outroPrompt: null,
         questions: body.questions ?? [],
+        checklist: [],
         createdAt: new Date(),
       });
     }
@@ -164,6 +176,159 @@ jobsController.post('/', async (c) => {
     return c.json({ success: true, data: out });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Create failed';
+    return c.json({ success: false, error: message }, 500);
+  }
+});
+
+jobsController.patch('/:id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'), 10);
+    if (Number.isNaN(id)) return c.json({ success: false, error: 'Invalid id' }, 400);
+
+    const [existing] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
+    if (!existing) return c.json({ success: false, error: 'Job not found' }, 404);
+
+    const body = await c.req.json();
+
+    if (body.title || body.description || body.requirements) {
+      await db.update(jobs).set({
+        ...(body.title ? { title: body.title } : {}),
+        ...(body.description ? { description: body.description } : {}),
+        ...(body.requirements ? { requirements: body.requirements } : {}),
+      }).where(eq(jobs.id, id));
+    }
+
+    const stepsIn = Array.isArray(body.interviewSteps) ? body.interviewSteps : null;
+    if (stepsIn) {
+      await db.delete(jobInterviewSteps).where(eq(jobInterviewSteps.jobId, id));
+
+      for (let i = 0; i < stepsIn.length; i++) {
+        const s = stepsIn[i] as {
+          title?: string;
+          purpose?: string;
+          interviewType?: 'intro' | 'technical';
+          durationMinutes?: number;
+          systemPrompt?: string;
+          introPrompt?: string;
+          outroPrompt?: string;
+          questions?: unknown[];
+          checklist?: unknown[];
+        };
+        await db.insert(jobInterviewSteps).values({
+          jobId: id,
+          stepOrder: i + 1,
+          title: String(s.title ?? `Step ${i + 1}`).trim() || `Step ${i + 1}`,
+          purpose: String(s.purpose ?? s.title ?? 'Interview round').trim(),
+          interviewType: s.interviewType === 'technical' ? 'technical' : 'intro',
+          durationMinutes: s.durationMinutes ?? 15,
+          systemPrompt: String(s.systemPrompt ?? 'You are a professional interviewer.').trim(),
+          introPrompt: s.introPrompt?.trim() || null,
+          outroPrompt: s.outroPrompt?.trim() || null,
+          questions: (s.questions as JobRow['questions']) ?? [],
+          checklist: (s.checklist as { id: string; label: string; required: boolean }[]) ?? [],
+          createdAt: new Date(),
+        });
+      }
+    }
+
+    const [refreshed] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
+    const [final] = await enrichJobsWithSteps([refreshed!]);
+    return c.json({ success: true, data: final });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Update failed';
+    return c.json({ success: false, error: message }, 500);
+  }
+});
+
+jobsController.post('/share/:shareCode/attendance', async (c) => {
+  try {
+    const shareCode = c.req.param('shareCode').toUpperCase();
+    const [job] = await db.select().from(jobs).where(eq(jobs.shareCode, shareCode)).limit(1);
+    if (!job) {
+      return c.json({ success: false, error: 'Invalid share code' }, 404);
+    }
+    const body = await c.req.json();
+    const name = String(body.name ?? '').trim();
+    const email = String(body.email ?? '').trim();
+    const round = typeof body.round === 'number' ? body.round : 1;
+    if (!name || !email) {
+      return c.json({ success: false, error: 'name and email are required' }, 400);
+    }
+
+    const [row] = await db
+      .insert(interviewAttendance)
+      .values({ jobId: job.id, name, email, round, joinedAt: new Date() })
+      .returning();
+
+    return c.json({ success: true, data: row });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Attendance failed';
+    return c.json({ success: false, error: message }, 500);
+  }
+});
+
+jobsController.patch('/attendance/:id/complete', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'), 10);
+    if (Number.isNaN(id)) {
+      return c.json({ success: false, error: 'Invalid id' }, 400);
+    }
+    const [updated] = await db
+      .update(interviewAttendance)
+      .set({ completedAt: new Date() })
+      .where(eq(interviewAttendance.id, id))
+      .returning();
+    if (!updated) {
+      return c.json({ success: false, error: 'Not found' }, 404);
+    }
+    return c.json({ success: true, data: updated });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Update failed';
+    return c.json({ success: false, error: message }, 500);
+  }
+});
+
+jobsController.get('/attendance', async (c) => {
+  try {
+    const projectIdStr = c.req.query('projectId');
+    const jobIdStr = c.req.query('jobId');
+
+    let jobIds: number[] = [];
+
+    if (jobIdStr) {
+      const jid = parseInt(jobIdStr, 10);
+      if (!Number.isNaN(jid)) jobIds = [jid];
+    } else if (projectIdStr) {
+      const pid = parseInt(projectIdStr, 10);
+      if (!Number.isNaN(pid)) {
+        const pJobs = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.projectId, pid));
+        jobIds = pJobs.map((j) => j.id);
+      }
+    }
+
+    if (jobIds.length === 0) {
+      return c.json({ success: true, data: [] });
+    }
+
+    const rows = await db
+      .select({
+        id: interviewAttendance.id,
+        jobId: interviewAttendance.jobId,
+        name: interviewAttendance.name,
+        email: interviewAttendance.email,
+        round: interviewAttendance.round,
+        joinedAt: interviewAttendance.joinedAt,
+        completedAt: interviewAttendance.completedAt,
+        jobTitle: jobs.title,
+      })
+      .from(interviewAttendance)
+      .innerJoin(jobs, eq(interviewAttendance.jobId, jobs.id))
+      .where(inArray(interviewAttendance.jobId, jobIds))
+      .orderBy(desc(interviewAttendance.joinedAt));
+
+    return c.json({ success: true, data: rows });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'List failed';
     return c.json({ success: false, error: message }, 500);
   }
 });

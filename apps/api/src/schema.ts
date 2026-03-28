@@ -35,8 +35,16 @@ export const jobInterviewSteps = sqliteTable('job_interview_steps', {
   interviewType: text('interviewType', { enum: ['intro', 'technical'] }).notNull(),
   durationMinutes: integer('durationMinutes').default(15),
   systemPrompt: text('systemPrompt').notNull(),
+  /** AI instructions for the intro phase (greeting, name confirmation, round overview). */
+  introPrompt: text('introPrompt'),
+  /** AI instructions for the outro phase (wrap-up, next steps, farewell). */
+  outroPrompt: text('outroPrompt'),
   questions: text('questions', { mode: 'json' }).$type<
     { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[]
+  >(),
+  /** Must-cover checklist items the AI needs to confirm during the interview (e.g. salary, start date). */
+  checklist: text('checklist', { mode: 'json' }).$type<
+    { id: string; label: string; required: boolean }[]
   >(),
   createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -73,6 +81,21 @@ export const candidates = sqliteTable('candidates', {
   weaknesses: text('weaknesses', { mode: 'json' }).$type<string[]>(),
   status: text('status', { enum: ['pending', 'interviewed', 'shortlisted', 'rejected'] }).default('pending'),
   createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+/** Tracks when a candidate joins (and optionally completes) an interview session. */
+export const interviewAttendance = sqliteTable('interview_attendance', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobId: integer('jobId')
+    .notNull()
+    .references(() => jobs.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  email: text('email').notNull(),
+  /** Which pipeline round the candidate started (1-based). */
+  round: integer('round').default(1),
+  joinedAt: integer('joinedAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  /** Set when the interview (or final round) finishes. */
+  completedAt: integer('completedAt', { mode: 'timestamp' }),
 });
 
 /** Per-round transcript/score when a candidate completes a pipeline step. */

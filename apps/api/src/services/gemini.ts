@@ -15,7 +15,7 @@ export async function analyzeJobOffer(
 ) {
   const ai = client();
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     contents: `Analyze this job offer for a ${interviewType === 'intro' ? 'First/Introductory' : 'Technical'} interview.
 Suggest 5 interview questions, a system prompt for an AI interviewer, and an estimated interview duration.
 
@@ -70,7 +70,7 @@ Job Description: ${jobDescription}`,
 export async function scoreCandidate(transcript: string, jobDescription: string) {
   const ai = client();
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     contents: `Score this candidate based on the interview transcript and job description.
 Job Description: ${jobDescription}
 Transcript: ${transcript}`,
@@ -122,7 +122,7 @@ export async function extractCvMetadata(resumeText: string): Promise<CvProfile> 
   }
   const ai = client();
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     contents: `You are a resume-parsing engine for an ATS. Extract every field you can from the resume below.
 
 Rules:
