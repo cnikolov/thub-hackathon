@@ -1,4 +1,4 @@
-# thub-hackathon
+# api
 
 To install dependencies:
 
