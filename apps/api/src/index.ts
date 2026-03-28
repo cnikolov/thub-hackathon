@@ -11,6 +11,7 @@ import { jobsController } from './jobs';
 import { candidatesController } from './candidates';
 import { aiController } from './ai';
 import { devController } from './dev';
+import { websocketHandler, type WsData } from './interview';
 
 // Initialize embedded SQLite database
 const sqlite = new Database('dev.db');
@@ -39,5 +40,16 @@ export { app };
 
 export default {
   port: 3001,
-  fetch: app.fetch,
+  fetch(req: Request, server: import('bun').Server) {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith('/ws/interview/')) {
+      const sessionId = url.pathname.slice('/ws/interview/'.length);
+      if (sessionId && server.upgrade<WsData>(req, { data: { sessionId } })) {
+        return undefined;
+      }
+      return new Response('WebSocket upgrade failed', { status: 400 });
+    }
+    return app.fetch(req, server);
+  },
+  websocket: websocketHandler,
 };

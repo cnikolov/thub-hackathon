@@ -5,6 +5,7 @@ import type { FishjamAgent, FishjamClient, TrackId, IncomingTrackData } from '@f
 import { buildSystemPrompt } from './prompts';
 import type { ActiveSession } from './sessions';
 import { markComplete, touchActivity } from './sessions';
+import { broadcast } from './ws';
 
 // ── Public ────────────────────────────────────────────────────────────────
 
@@ -49,9 +50,9 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
           automaticActivityDetection: {
             disabled: false,
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
             prefixPaddingMs: 20,
-            silenceDurationMs: 500,
+            silenceDurationMs: 1000,
           },
         },
         contextWindowCompression: { slidingWindow: {} },
@@ -99,6 +100,17 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
                 parameters: { type: Type.OBJECT, properties: {}, required: [] },
               },
               {
+                name: 'blockInterruptions',
+                description: "Call this BEFORE you start an important statement, explanation, or multi-sentence response that you don't want the candidate to interrupt. It keeps the candidate's mic muted for the specified duration. After the time expires, the mic auto-unlocks. Use 3-8 seconds for short points, 8-15 for longer explanations. Always call promptCandidate AFTER you finish speaking to ensure the mic unlocks.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    seconds: { type: Type.NUMBER, description: 'How many seconds to keep the candidate muted (1-30)' },
+                  },
+                  required: ['seconds'],
+                },
+              },
+              {
                 name: 'completeInterview',
                 description: 'Call this function when the interview round is finished and all questions have been covered.',
                 parameters: {
@@ -144,6 +156,9 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
 export function relayTrackData(session: ActiveSession) {
   session.agent.on('trackData', (msg: IncomingTrackData) => {
     if (!session.geminiSession || session.status !== 'active') return;
+    // Only relay audio from the candidate peer — ignore the agent's own
+    // audio to prevent a feedback loop where Gemini responds to itself.
+    if (msg.peerId === session.agentPeerId) return;
     touchActivity(session);
     try {
       const base64 = Buffer.from(msg.data).toString('base64');
@@ -207,6 +222,8 @@ function handleGeminiMessage(
         const raw = call.args as Record<string, unknown> | undefined;
         if (raw && typeof raw.score === 'number' && typeof raw.notes === 'string') {
           session.assessment = { score: Math.max(0, Math.min(100, raw.score)), notes: raw.notes };
+          if (raw.notes.trim()) session.assessmentLog.push(raw.notes.trim());
+          broadcast(session.sessionId, { type: 'assessment', score: session.assessment.score, notes: raw.notes });
         }
         try {
           session.geminiSession?.sendToolResponse({
@@ -217,6 +234,7 @@ function handleGeminiMessage(
 
       if (call.name === 'markIntroComplete') {
         if (session.phase === 'intro') session.phase = 'objectives';
+        broadcast(session.sessionId, { type: 'phase', phase: session.phase });
         try {
           session.geminiSession?.sendToolResponse({
             functionResponses: [{ name: 'markIntroComplete', response: { status: 'success' }, id: call.id }],
@@ -226,6 +244,7 @@ function handleGeminiMessage(
 
       if (call.name === 'startOutro') {
         if (session.phase === 'objectives') session.phase = 'outro';
+        broadcast(session.sessionId, { type: 'phase', phase: session.phase });
         try {
           session.geminiSession?.sendToolResponse({
             functionResponses: [{ name: 'startOutro', response: { status: 'success' }, id: call.id }],
@@ -242,6 +261,7 @@ function handleGeminiMessage(
           );
           if (item) item.covered = true;
         }
+        broadcast(session.sessionId, { type: 'checklist', items: [...session.checklist] });
         try {
           session.geminiSession?.sendToolResponse({
             functionResponses: [{ name: 'markChecklistItem', response: { status: 'success' }, id: call.id }],
@@ -251,9 +271,21 @@ function handleGeminiMessage(
 
       if (call.name === 'promptCandidate') {
         session.unmuteRequested = true;
+        broadcast(session.sessionId, { type: 'unmute' });
         try {
           session.geminiSession?.sendToolResponse({
             functionResponses: [{ name: 'promptCandidate', response: { status: 'success' }, id: call.id }],
+          });
+        } catch { /* */ }
+      }
+
+      if (call.name === 'blockInterruptions') {
+        const raw = call.args as Record<string, unknown> | undefined;
+        const seconds = Math.max(1, Math.min(30, Number(raw?.seconds) || 5));
+        broadcast(session.sessionId, { type: 'block', seconds });
+        try {
+          session.geminiSession?.sendToolResponse({
+            functionResponses: [{ name: 'blockInterruptions', response: { status: 'success', seconds }, id: call.id }],
           });
         } catch { /* */ }
       }
@@ -271,11 +303,60 @@ function handleGeminiMessage(
   }
 }
 
-// ── Video capture (disabled — captureImage causes agent crash) ───────────
+// ── Video capture — periodically grabs a JPEG frame from the candidate's camera ──
 
-export function startVideoCapture(_session: ActiveSession, _fishjamClient: FishjamClient) {
-  // TODO: re-enable once Fishjam captureImage stability is resolved.
-  // The agent.captureImage() call causes "internal server error" agent disconnects.
+export function startVideoCapture(session: ActiveSession, fishjamClient: FishjamClient) {
+  let candidateVideoTrackId: string | null = null;
+  let frameCount = 0;
+
+  const tryFindVideoTrack = async (): Promise<string | null> => {
+    try {
+      const room = await fishjamClient.getRoom(session.roomId);
+      for (const peer of room.peers) {
+        if (peer.id === session.agentPeerId) continue;
+        for (const track of peer.tracks) {
+          if (track.type === 'video' && track.id) return track.id;
+        }
+      }
+    } catch (err) {
+      console.warn(`[Session ${session.sessionId}] Failed to get room for video track discovery:`, err);
+    }
+    return null;
+  };
+
+  const captureLoop = async () => {
+    if (session.status !== 'active' && session.status !== 'waiting') return;
+
+    if (!candidateVideoTrackId) {
+      candidateVideoTrackId = await tryFindVideoTrack();
+      if (!candidateVideoTrackId) {
+        console.log(`[Session ${session.sessionId}] No video track yet — will retry`);
+        return;
+      }
+      console.log(`[Session ${session.sessionId}] Found candidate video track: ${candidateVideoTrackId}`);
+    }
+
+    try {
+      const image = await session.agent.captureImage(candidateVideoTrackId, 4000);
+      frameCount++;
+
+      if (session.geminiSession && session.status === 'active') {
+        const base64 = Buffer.from(image.data).toString('base64');
+        const mimeType = image.contentType || 'image/jpeg';
+        session.geminiSession.sendRealtimeInput({ video: { data: base64, mimeType } });
+        console.log(`[Session ${session.sessionId}] Sent frame #${frameCount} to Gemini (${mimeType})`);
+      }
+    } catch (err) {
+      console.error(`[Session ${session.sessionId}] captureImage failed:`, err);
+      candidateVideoTrackId = null;
+    }
+  };
+
+  session.videoFrameTimer = setInterval(() => {
+    captureLoop().catch((err) => {
+      console.error(`[Session ${session.sessionId}] Video capture loop error:`, err);
+    });
+  }, 3000);
 }
 
 // ── Audio helpers ─────────────────────────────────────────────────────────

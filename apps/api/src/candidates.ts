@@ -28,15 +28,23 @@ function publicCandidate(row: CandidateRow, extra?: { matchScore?: number }) {
   };
 }
 
-async function persistNotesEmbedding(candidateId: number, notes: string | null) {
+async function persistNotesEmbedding(candidateId: number, row: { notes: string | null; strengths: string[] | string | null; weaknesses: string[] | string | null }) {
   if (!hasEmbeddingConfig()) return;
-  const trimmed = notes?.trim() ?? '';
-  if (!trimmed) {
+  const parts: string[] = [];
+  if (row.notes?.trim()) parts.push(row.notes.trim());
+  const str = (v: string[] | string | null) =>
+    Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : '';
+  const s = str(row.strengths);
+  const w = str(row.weaknesses);
+  if (s) parts.push(`Strengths: ${s}`);
+  if (w) parts.push(`Weaknesses: ${w}`);
+  const text = parts.join('\n');
+  if (!text) {
     await db.update(candidates).set({ notesEmbedding: null }).where(eq(candidates.id, candidateId));
     return;
   }
   try {
-    const vec = await embedDocument(trimmed);
+    const vec = await embedDocument(text);
     await db
       .update(candidates)
       .set({ notesEmbedding: float32ToBuffer(vec) })
@@ -60,6 +68,7 @@ function matchSearchToken(token: string): SQL {
     instr(lower(coalesce(${candidates.transcript}, '')), ${t}) > 0 OR
     instr(lower(coalesce(${candidates.resumeText}, '')), ${t}) > 0 OR
     instr(lower(coalesce(${candidates.strengths}, '')), ${t}) > 0 OR
+    instr(lower(coalesce(${candidates.weaknesses}, '')), ${t}) > 0 OR
     instr(lower(coalesce(${candidates.skillsTags}, '')), ${t}) > 0 OR
     instr(lower(coalesce(${candidates.availability}, '')), ${t}) > 0 OR
     instr(lower(coalesce(${candidates.experienceSummary}, '')), ${t}) > 0 OR
@@ -156,6 +165,9 @@ candidatesController.post('/', async (c) => {
 
     const transcript = body.transcript != null ? String(body.transcript) : null;
     const resumeText = body.resumeText != null ? String(body.resumeText).trim() || null : null;
+    const liveObservations: string[] = Array.isArray(body.liveObservations)
+      ? (body.liveObservations as unknown[]).filter((o): o is string => typeof o === 'string' && o.trim() !== '')
+      : [];
 
     const jobStepIdRaw = body.jobStepId;
     const jobStepId =
@@ -272,7 +284,7 @@ candidatesController.post('/', async (c) => {
 
       if (allComplete && combined) {
         try {
-          const s = await scoreCandidate(combined, job.description);
+          const s = await scoreCandidate(combined, job.description, liveObservations);
           score = s.score;
           notes = s.notes;
           strengths = s.strengths;
@@ -298,7 +310,7 @@ candidatesController.post('/', async (c) => {
         .returning();
 
       if (updated) {
-        await persistNotesEmbedding(updated.id, updated.notes);
+        await persistNotesEmbedding(updated.id, { notes: updated.notes, strengths: updated.strengths, weaknesses: updated.weaknesses });
       }
 
       return c.json({
@@ -319,7 +331,7 @@ candidatesController.post('/', async (c) => {
 
     if (transcript && (score == null || Number.isNaN(score))) {
       try {
-        const s = await scoreCandidate(transcript, job.description);
+        const s = await scoreCandidate(transcript, job.description, liveObservations);
         score = s.score;
         notes = s.notes;
         strengths = s.strengths;
@@ -349,7 +361,7 @@ candidatesController.post('/', async (c) => {
       .returning();
 
     if (row) {
-      await persistNotesEmbedding(row.id, row.notes);
+      await persistNotesEmbedding(row.id, { notes: row.notes, strengths: row.strengths, weaknesses: row.weaknesses });
     }
 
     return c.json({ success: true, data: row ? publicCandidate(row) : null });
@@ -599,14 +611,34 @@ candidatesController.patch('/:id', async (c) => {
 
     await db.update(candidates).set(patch).where(eq(candidates.id, id));
 
-    if (patch.notes !== undefined) {
-      await persistNotesEmbedding(id, patch.notes ?? null);
+    const [fresh] = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
+
+    if (patch.notes !== undefined && fresh) {
+      await persistNotesEmbedding(id, { notes: fresh.notes, strengths: fresh.strengths, weaknesses: fresh.weaknesses });
     }
 
-    const [fresh] = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
     return c.json({ success: true, data: fresh ? publicCandidate(fresh) : null });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Update failed';
+    return c.json({ success: false, error: message }, 500);
+  }
+});
+
+candidatesController.delete('/:id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'), 10);
+    if (Number.isNaN(id)) {
+      return c.json({ success: false, error: 'Invalid id' }, 400);
+    }
+    const [existing] = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
+    if (!existing) {
+      return c.json({ success: false, error: 'Not found' }, 404);
+    }
+    await db.delete(candidateStepResults).where(eq(candidateStepResults.candidateId, id));
+    await db.delete(candidates).where(eq(candidates.id, id));
+    return c.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Delete failed';
     return c.json({ success: false, error: message }, 500);
   }
 });

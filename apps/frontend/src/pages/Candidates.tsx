@@ -13,6 +13,7 @@ import {
   Phone,
   Save,
   Search,
+  Trash2,
   Upload,
   Users,
   X,
@@ -43,13 +44,17 @@ function CandidateModal({
   candidate,
   onClose,
   onUpdated,
+  onDeleted,
 }: {
   candidate: Candidate;
   onClose: () => void;
   onUpdated: (c: Candidate) => void;
+  onDeleted: (id: number) => void;
 }) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [cvUploading, setCvUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cvInputRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +112,24 @@ function CandidateModal({
     } finally {
       setCvUploading(false);
       e.target.value = '';
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await api.delete<ApiResult<null>>(`/candidates/${candidate.id}`);
+      if ('success' in res && !res.success) {
+        setError(res.error);
+        return;
+      }
+      onDeleted(candidate.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete candidate');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
@@ -363,6 +386,40 @@ function CandidateModal({
               {candidate.transcript}
             </pre>
           )}
+
+          {/* Delete */}
+          <div className="border-t border-border pt-6">
+            {!confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-semibold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
+              >
+                <Trash2 size={15} />
+                Delete candidate
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-red-600 font-medium">Are you sure?</span>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={handleDelete}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-60"
+                >
+                  <Trash2 size={15} />
+                  {deleting ? 'Deleting…' : 'Yes, delete'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="px-4 py-2.5 rounded-2xl text-sm font-semibold text-muted hover:text-ink border border-border hover:bg-surface transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </motion.div>
     </motion.div>
@@ -453,6 +510,11 @@ export function Candidates() {
   const handleCandidateUpdated = useCallback((updated: Candidate) => {
     setSelected(updated);
     setCandidates((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+  }, []);
+
+  const handleCandidateDeleted = useCallback((id: number) => {
+    setSelected(null);
+    setCandidates((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
   if (selectedProjectId == null) {
@@ -691,6 +753,7 @@ export function Candidates() {
             candidate={selected}
             onClose={() => setSelected(null)}
             onUpdated={handleCandidateUpdated}
+            onDeleted={handleCandidateDeleted}
           />
         )}
       </AnimatePresence>

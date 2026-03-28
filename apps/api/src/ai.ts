@@ -30,7 +30,10 @@ aiController.post('/score-candidate', async (c) => {
     if (!transcript?.trim()) {
       return c.json({ success: false, error: 'transcript is required' }, 400);
     }
-    const data = await scoreCandidate(transcript, jobDescription ?? '');
+    const liveObservations = Array.isArray(body.liveObservations)
+      ? (body.liveObservations as unknown[]).filter((o): o is string => typeof o === 'string')
+      : undefined;
+    const data = await scoreCandidate(transcript, jobDescription ?? '', liveObservations);
     return c.json({ success: true, data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Scoring failed';

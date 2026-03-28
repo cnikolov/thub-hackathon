@@ -22,6 +22,7 @@ import {
   useVAD,
 } from '@fishjam-cloud/react-client';
 import { api, type ApiResult } from '../lib/api';
+import { connectInterviewWs, type InterviewWsEvent } from '../lib/ws';
 import type { Candidate, Job, JobInterviewStep } from '../lib/types';
 import { cn } from '../lib/utils';
 
@@ -368,7 +369,7 @@ function FishjamInterviewRoom({
   sessionData: SessionData;
   steps: JobInterviewStep[];
   pipelineIndex: number;
-  onInterviewComplete: (transcript: string | null) => void;
+  onInterviewComplete: (transcript: string | null, assessmentLog?: string[]) => void;
   onExit: () => void;
   noiseGateThreshold: number;
 }) {
@@ -384,7 +385,6 @@ function FishjamInterviewRoom({
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [phase, setPhase] = useState<Phase>('intro');
   const [showNotes, setShowNotes] = useState(true);
-  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completedRef = useRef(false);
 
   const onCompleteRef = useRef(onInterviewComplete);
@@ -392,34 +392,58 @@ function FishjamInterviewRoom({
   const leaveRoomRef = useRef(leaveRoom);
   leaveRoomRef.current = leaveRoom;
 
-  const aiUnlockedMicRef = useRef(false);
+  const [micLockedByAi, setMicLockedByAi] = useState(true);
+  const [blockCountdown, setBlockCountdown] = useState<number | null>(null);
+  const micLockedRef = useRef(true);
+  const blockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isMutedRef = useRef(isMicrophoneMuted);
-  isMutedRef.current = isMicrophoneMuted;
+  const lockMic = useCallback(() => {
+    micLockedRef.current = true;
+    setMicLockedByAi(true);
+  }, []);
+
+  const unlockMic = useCallback(() => {
+    if (blockTimerRef.current) { clearTimeout(blockTimerRef.current); blockTimerRef.current = null; }
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    micLockedRef.current = false;
+    setMicLockedByAi(false);
+    setBlockCountdown(null);
+  }, []);
+
+  const blockMicFor = useCallback((seconds: number) => {
+    if (blockTimerRef.current) clearTimeout(blockTimerRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    lockMic();
+    setBlockCountdown(Math.ceil(seconds));
+    countdownRef.current = setInterval(() => {
+      setBlockCountdown((prev) => {
+        if (prev == null || prev <= 1) return null;
+        return prev - 1;
+      });
+    }, 1000);
+    blockTimerRef.current = setTimeout(() => {
+      blockTimerRef.current = null;
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+      setBlockCountdown(null);
+      unlockMic();
+      console.log('[Mic] Block expired — auto-unlocking');
+    }, seconds * 1000);
+  }, [lockMic, unlockMic]);
+
+  // AI unlock handler — called when the 'unmute' WS event arrives.
   const toggleMicrophoneMuteRef = useRef(async (forceUnmute: boolean) => {
-    if (forceUnmute && isMutedRef.current) {
-      aiUnlockedMicRef.current = true;
-      await toggleMicrophoneMute();
-      api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: false }).catch(() => {});
+    if (forceUnmute) {
+      console.log('[Mic] AI unlock');
+      unlockMic();
     }
   });
   toggleMicrophoneMuteRef.current = async (forceUnmute: boolean) => {
-    if (forceUnmute && isMutedRef.current) {
-      aiUnlockedMicRef.current = true;
-      await toggleMicrophoneMute();
-      api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: false }).catch(() => {});
+    if (forceUnmute) {
+      console.log('[Mic] AI unlock');
+      unlockMic();
     }
   };
-
-  // Enforce mute the instant the mic comes alive — keeps it muted until
-  // the AI explicitly calls promptCandidate to unlock it.
-  useEffect(() => {
-    if (aiUnlockedMicRef.current) return;
-    if (isMicrophoneOn && !isMicrophoneMuted) {
-      toggleMicrophoneMute();
-      api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: true }).catch(() => {});
-    }
-  }, [isMicrophoneOn, isMicrophoneMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const agentPeer = remotePeers.find((p) => (p.id as string) === sessionData.agentPeerId);
   const agentPeerIds = useMemo(() => (agentPeer ? [agentPeer.id] : []), [agentPeer?.id]);
@@ -454,7 +478,9 @@ function FishjamInterviewRoom({
         await initializeDevices({ enableAudio: true, enableVideo: true });
         if (cancelled) return;
 
-        // Apply noise gate middleware before joining
+        // Apply noise gate + AI lock middleware before joining.
+        // While micLockedRef is true, gain is forced to 0 so no audio
+        // reaches Fishjam regardless of the Fishjam mute state.
         await setMicrophoneTrackMiddleware((track: MediaStreamTrack) => {
           const ctx = new AudioContext();
           const source = ctx.createMediaStreamSource(new MediaStream([track]));
@@ -462,6 +488,7 @@ function FishjamInterviewRoom({
           analyser.fftSize = 256;
           analyser.smoothingTimeConstant = 0.5;
           const gain = ctx.createGain();
+          gain.gain.value = 0;
           const dest = ctx.createMediaStreamDestination();
 
           source.connect(analyser);
@@ -473,6 +500,10 @@ function FishjamInterviewRoom({
 
           function gate() {
             rafId = requestAnimationFrame(gate);
+            if (micLockedRef.current) {
+              gain.gain.setTargetAtTime(0, ctx.currentTime, 0.005);
+              return;
+            }
             analyser.getByteFrequencyData(freqData);
             const avg = freqData.reduce((a, b) => a + b, 0) / freqData.length;
             const level = avg / 128;
@@ -494,10 +525,6 @@ function FishjamInterviewRoom({
         });
         if (cancelled) return;
 
-        // Mute BEFORE joining so no audio leaks into the room
-        await toggleMicrophoneMute();
-        api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: true }).catch(() => {});
-
         await joinRoom({ peerToken: sessionData.peerToken });
         if (cancelled) return;
 
@@ -515,41 +542,39 @@ function FishjamInterviewRoom({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll session status (setTimeout chaining to avoid stacking)
+  // Real-time interview events via WebSocket (replaces HTTP polling)
   useEffect(() => {
     if (!isActive) return;
 
-    function poll() {
-      pollingRef.current = setTimeout(async () => {
-        try {
-          const res = await api.get<ApiResult<{ status: string; transcript: string | null; phase?: Phase; assessment?: { score: number; notes: string }; checklist?: ChecklistItem[]; unmuteRequested?: boolean }>>(`/rooms/interview-session/${sessionData.sessionId}`);
-          if (res.success) {
-            if (res.data.assessment) setAssessment(res.data.assessment);
-            if (res.data.checklist) setChecklist(res.data.checklist);
-            if (res.data.phase) setPhase(res.data.phase);
-
-            // AI requested unmute — automatically unmute the candidate
-            if (res.data.unmuteRequested) {
-              console.log('[Interview] AI requested unmute — unlocking mic');
-              toggleMicrophoneMuteRef.current(true);
-            }
-
-            if (res.data.status === 'complete') {
-              completedRef.current = true;
-              leaveRoomRef.current();
-              onCompleteRef.current(res.data.transcript);
-              return;
-            }
-          }
-        } catch { /* keep polling */ }
-        poll();
-      }, 1500);
-    }
-    poll();
-
-    return () => {
-      if (pollingRef.current) clearTimeout(pollingRef.current);
+    const handleEvent = (event: InterviewWsEvent) => {
+      if (completedRef.current) return;
+      switch (event.type) {
+        case 'assessment':
+          setAssessment({ score: event.score, notes: event.notes });
+          break;
+        case 'phase':
+          setPhase(event.phase as Phase);
+          break;
+        case 'checklist':
+          setChecklist(event.items);
+          break;
+        case 'unmute':
+          console.log('[Interview] AI requested unmute — unlocking mic');
+          toggleMicrophoneMuteRef.current(true);
+          break;
+        case 'block':
+          console.log(`[Interview] AI blocking interruptions for ${event.seconds}s`);
+          blockMicFor(event.seconds);
+          break;
+        case 'complete':
+          completedRef.current = true;
+          leaveRoomRef.current();
+          onCompleteRef.current(event.transcript, event.assessmentLog);
+          break;
+      }
     };
+
+    return connectInterviewWs(sessionData.sessionId, handleEvent);
   }, [isActive, sessionData.sessionId]);
 
   const activeRound = steps[pipelineIndex];
@@ -638,27 +663,39 @@ function FishjamInterviewRoom({
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={async () => {
-                await toggleMicrophoneMute();
-                const nowMuted = !isMicrophoneMuted;
-                api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: nowMuted }).catch(() => {});
+              disabled={micLockedByAi}
+              onClick={() => {
+                if (micLockedByAi) return;
+                toggleMicrophoneMute();
               }}
               className={cn(
                 'relative flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-2xl font-bold text-sm transition-all shadow-md',
-                isMicrophoneMuted
-                  ? 'bg-red-50 text-red-600 ring-2 ring-red-200 hover:bg-red-100'
-                  : 'bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200 hover:bg-emerald-100',
+                micLockedByAi
+                  ? 'bg-zinc-100 text-zinc-400 ring-2 ring-zinc-200 cursor-not-allowed opacity-60'
+                  : isMicrophoneMuted
+                    ? 'bg-red-50 text-red-600 ring-2 ring-red-200 hover:bg-red-100'
+                    : 'bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200 hover:bg-emerald-100',
               )}
             >
               <div className={cn(
                 'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
-                isMicrophoneMuted ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white',
+                micLockedByAi
+                  ? 'bg-zinc-400 text-white'
+                  : isMicrophoneMuted ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white',
               )}>
-                {isMicrophoneMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                {micLockedByAi || isMicrophoneMuted ? <MicOff size={18} /> : <Mic size={18} />}
               </div>
               <div className="flex flex-col items-start">
-                <span className="text-xs leading-tight">{isMicrophoneMuted ? 'Muted' : 'Live'}</span>
-                <span className="text-[10px] font-medium opacity-60">{isMicrophoneMuted ? 'Click to unmute' : 'Click to mute'}</span>
+                <span className="text-xs leading-tight">
+                  {micLockedByAi
+                    ? blockCountdown != null ? `Listen ${blockCountdown}s` : 'Waiting'
+                    : isMicrophoneMuted ? 'Muted' : 'Live'}
+                </span>
+                <span className="text-[10px] font-medium opacity-60">
+                  {micLockedByAi
+                    ? blockCountdown != null ? 'AI is speaking' : 'AI will enable your mic'
+                    : isMicrophoneMuted ? 'Click to unmute' : 'Click to mute'}
+                </span>
               </div>
             </button>
 
@@ -805,6 +842,8 @@ function FishjamInterviewRoom({
 function PreInterviewLobby({
   job,
   steps,
+  activeRoundIndex,
+  onRoundChange,
   name,
   email,
   onNameChange,
@@ -816,6 +855,8 @@ function PreInterviewLobby({
 }: {
   job: Job;
   steps: JobInterviewStep[];
+  activeRoundIndex: number;
+  onRoundChange: (i: number) => void;
   name: string;
   email: string;
   onNameChange: (v: string) => void;
@@ -913,18 +954,37 @@ function PreInterviewLobby({
         </div>
 
         <div className="rounded-2xl border border-border bg-surface p-5">
-          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-3">What to expect</p>
+          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-3">
+            {steps.length > 1 ? 'Interview rounds' : 'What to expect'}
+          </p>
           {steps.length > 1 ? (
-            <ol className="space-y-2 text-sm">
-              {steps.map((s, i) => (
-                <li key={s.id ?? `step-${i}`} className="flex items-baseline gap-2">
-                  <span className="w-5 h-5 rounded-lg text-[10px] font-bold flex items-center justify-center shrink-0 bg-primary/10 text-primary">
-                    {i + 1}
-                  </span>
-                  <span className="font-medium text-ink">{s.title}</span>
-                  {s.durationMinutes ? <span className="text-xs text-muted ml-auto">~{s.durationMinutes}m</span> : null}
-                </li>
-              ))}
+            <ol className="space-y-1.5 text-sm">
+              {steps.map((s, i) => {
+                const isActive = i === activeRoundIndex;
+                return (
+                  <li key={s.id ?? `step-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => onRoundChange(i)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all',
+                        isActive
+                          ? 'bg-primary/10 ring-2 ring-primary/30'
+                          : 'hover:bg-white/60',
+                      )}
+                    >
+                      <span className={cn(
+                        'w-6 h-6 rounded-lg text-[10px] font-bold flex items-center justify-center shrink-0',
+                        isActive ? 'bg-primary text-white' : 'bg-primary/10 text-primary',
+                      )}>
+                        {i + 1}
+                      </span>
+                      <span className={cn('font-medium truncate', isActive ? 'text-primary' : 'text-ink')}>{s.title}</span>
+                      {s.durationMinutes ? <span className="text-xs text-muted ml-auto shrink-0">~{s.durationMinutes}m</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
             </ol>
           ) : (
             <ul className="space-y-2 text-sm text-muted">
@@ -989,21 +1049,12 @@ function PreInterviewLobby({
 // ---------------------------------------------------------------------------
 // Shared confetti burst helper
 // ---------------------------------------------------------------------------
-function fireConfetti(durationMs = 3_000) {
-  const end = Date.now() + durationMs;
+function fireConfetti() {
   const colors = ['#14b8a6', '#0d9488', '#2dd4bf', '#fbbf24', '#f59e0b', '#6366f1', '#ec4899', '#8b5cf6'];
-
-  function frame() {
-    confetti({ particleCount: 100, angle: 60, spread: 80, origin: { x: 0, y: 0.6 }, colors, gravity: 0.8 });
-    confetti({ particleCount: 100, angle: 120, spread: 80, origin: { x: 1, y: 0.6 }, colors, gravity: 0.8 });
-    if (Date.now() < end) requestAnimationFrame(frame);
-  }
-  frame();
-
-  // Big center cannon after a short delay
+  confetti({ particleCount: 200, spread: 140, startVelocity: 40, origin: { x: 0.5, y: 0.7 }, colors, gravity: 0.7, ticks: 200 });
   setTimeout(() => {
-    confetti({ particleCount: 200, spread: 160, startVelocity: 45, origin: { x: 0.5, y: 0.4 }, colors, gravity: 0.6 });
-  }, 400);
+    confetti({ particleCount: 200, spread: 140, startVelocity: 40, origin: { x: 0.5, y: 0.7 }, colors, gravity: 0.7, ticks: 200 });
+  }, 150);
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,17 +1173,39 @@ function CompletionScreen({ onExit }: { onExit: () => void }) {
 // Main InterviewSession component
 // ---------------------------------------------------------------------------
 function InterviewSession({ code, onExit }: { code: string; onExit: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [job, setJob] = useState<Job | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uiPhase, setUiPhase] = useState<'intro' | 'connecting' | 'interview' | 'between' | 'complete'>('intro');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [pipelineIndex, setPipelineIndex] = useState(0);
+  const initialRound = Math.max(0, parseInt(searchParams.get('round') ?? '0', 10) || 0);
+  const [pipelineIndex, setPipelineIndex] = useState(initialRound);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [candidateId, setCandidateId] = useState<number | null>(null);
   const [noiseGateThreshold, setNoiseGateThreshold] = useState(0.08);
   const attendanceIdRef = useRef<number | null>(null);
   const completedNormallyRef = useRef(false);
+
+  // Keep URL ?round= in sync with pipelineIndex (push state → URL)
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (pipelineIndex > 0) next.set('round', String(pipelineIndex));
+      else next.delete('round');
+      return next;
+    }, { replace: true });
+  }, [pipelineIndex, setSearchParams]);
+
+  // Respond to external URL changes (URL → state), e.g. user edits ?round= in address bar
+  useEffect(() => {
+    const urlRound = Math.max(0, parseInt(searchParams.get('round') ?? '0', 10) || 0);
+    if (urlRound !== pipelineIndex && uiPhase !== 'interview') {
+      setPipelineIndex(urlRound);
+      setSessionData(null);
+      if (uiPhase === 'between' || uiPhase === 'complete') setUiPhase('intro');
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const saved = localStorage.getItem('talentflow_candidate_name');
@@ -1195,7 +1268,7 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
   }, [name, email, job, code, pipelineIndex]);
 
   const handleInterviewComplete = useCallback(
-    async (transcript: string | null) => {
+    async (transcript: string | null, assessmentLog?: string[]) => {
       completedNormallyRef.current = true;
       if (!job) return;
       const steps = getSortedSteps(job);
@@ -1204,6 +1277,7 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
       if (transcript?.trim()) {
         try {
           const payload: Record<string, unknown> = { jobId: job.id, name, email, transcript };
+          if (assessmentLog?.length) payload.liveObservations = assessmentLog;
           if (currentStep?.id != null) payload.jobStepId = currentStep.id;
           if (candidateId != null) payload.candidateId = candidateId;
           const res = await api.post<{
@@ -1301,11 +1375,36 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
                 <img src="/hackatron-project-logo.png" alt="Logo" className="w-12 h-12 rounded-2xl object-contain" />
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-ink">{job.title}</h2>
-                  <p className="text-xs text-muted font-semibold uppercase tracking-widest">
-                    {steps.length > 1
-                      ? `Round ${pipelineIndex + 1} of ${steps.length}${activeRound?.title ? ` — ${activeRound.title}` : ''}`
-                      : 'Interview session'}
-                  </p>
+                  {steps.length > 1 ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {steps.map((s, i) => {
+                        const isCurrent = i === pipelineIndex;
+                        const canSwitch = uiPhase === 'between' || uiPhase === 'complete';
+                        return (
+                          <button
+                            key={s.id ?? i}
+                            type="button"
+                            disabled={!canSwitch}
+                            onClick={() => { if (canSwitch) { setPipelineIndex(i); setSessionData(null); setUiPhase('intro'); } }}
+                            title={s.title}
+                            className={cn(
+                              'px-2.5 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all',
+                              isCurrent
+                                ? 'bg-primary text-white'
+                                : canSwitch
+                                  ? 'bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer'
+                                  : 'bg-surface text-muted cursor-default',
+                            )}
+                          >
+                            {i + 1}
+                          </button>
+                        );
+                      })}
+                      <span className="text-xs text-muted font-semibold ml-2">{activeRound?.title}</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted font-semibold uppercase tracking-widest">Interview session</p>
+                  )}
                 </div>
               </div>
               <button type="button" onClick={onExit} className="p-3 hover:bg-red-50 text-muted hover:text-red-500 rounded-xl transition-all" aria-label="Leave">
@@ -1319,6 +1418,8 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
               <PreInterviewLobby
                 job={job}
                 steps={steps}
+                activeRoundIndex={pipelineIndex}
+                onRoundChange={(i) => { setPipelineIndex(i); setSessionData(null); }}
                 name={name}
                 email={email}
                 onNameChange={setName}

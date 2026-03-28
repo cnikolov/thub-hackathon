@@ -67,20 +67,65 @@ Job Description: ${jobDescription}`,
   };
 }
 
-export async function scoreCandidate(transcript: string, jobDescription: string) {
+export async function scoreCandidate(
+  transcript: string,
+  jobDescription: string,
+  liveObservations?: string[],
+) {
   const ai = client();
+
+  const observationsBlock = liveObservations?.length
+    ? `\nLIVE INTERVIEWER OBSERVATIONS (recorded in real-time during the call):\n${liveObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n\nThese observations are FIRST-HAND notes from the AI interviewer who conducted the call. Treat them as factual evidence — especially any notes about professionalism, attitude, or behaviour. They MUST be reflected in the final score, notes, strengths, and weaknesses.\n`
+    : '';
+
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
-    contents: `Score this candidate based on the interview transcript and job description.
-Job Description: ${jobDescription}
-Transcript: ${transcript}`,
+    contents: `You are a rigorous hiring evaluator. Score this candidate based on the interview transcript, job description, and any live interviewer observations.
+
+JOB DESCRIPTION:
+${jobDescription}
+
+TRANSCRIPT:
+${transcript}
+${observationsBlock}
+SCORING RUBRIC — follow these criteria strictly:
+
+1. TECHNICAL COMPETENCE (0–40 points)
+   - Does the candidate demonstrate solid knowledge of the technologies listed in the job description?
+   - CRITICAL: Strongly prefer candidates who use well-established, battle-tested, community-backed libraries and frameworks (e.g. React Query, Redux/Zustand, Express, Django, Spring, etc.) over candidates who claim to roll their own solutions or use unconventional/unheard-of approaches.
+   - Rolling your own state management, reinventing ORMs, avoiding standard tooling, or using obscure DIY patterns when mature industry solutions exist is a RED FLAG — it suggests the candidate may lack awareness of ecosystem best practices, struggle in team environments, or create unmaintainable code. Deduct 10-25 points depending on severity.
+   - Evaluate depth: can they explain trade-offs, edge cases, and real-world experience, or are answers surface-level?
+
+2. COMMUNICATION & CLARITY (0–20 points)
+   - Are answers clear, structured, and well-articulated?
+   - Can they explain complex topics simply?
+   - Do they stay on topic and answer what was asked?
+
+3. PROFESSIONALISM & ATTITUDE (0–25 points)
+   - This is weighted HEAVILY. A candidate who is rude, dismissive, makes inappropriate jokes, uses unprofessional language, appears disengaged, or does not take the interview seriously should receive 0-5 points in this category AND the total score should be capped at 35 maximum regardless of technical ability.
+   - Disrespect toward the interviewer (even though it is AI) is disqualifying behaviour.
+   - Look for: politeness, enthusiasm, preparation, professionalism, respectful communication.
+   - Mild informality is fine. Hostility, mockery, vulgarity, or checked-out energy is not.
+
+4. PROBLEM-SOLVING & EXPERIENCE (0–15 points)
+   - Can they apply their knowledge to real scenarios?
+   - Do they show evidence of meaningful hands-on experience?
+   - Can they reason through problems rather than just recite definitions?
+
+FINAL SCORE = sum of the four categories (0–100).
+
+IMPORTANT SCORING RULES:
+- If the candidate was flagged as unprofessional in the live observations, the total score MUST NOT exceed 35.
+- If the candidate avoids industry-standard tools in favour of DIY/custom solutions without an excellent justification, deduct at least 10 points from Technical Competence.
+- A candidate who gives joke answers, troll responses, or clearly is not engaging seriously should score below 20 total.
+- Include specific quotes or paraphrases from the transcript to justify your scoring decisions.`,
     config: {
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          score: { type: Type.NUMBER, description: 'Score from 0 to 100' },
-          notes: { type: Type.STRING, description: 'Detailed summary and notes about the candidate' },
+          score: { type: Type.NUMBER, description: 'Final score from 0 to 100, sum of the four rubric categories' },
+          notes: { type: Type.STRING, description: 'Detailed summary including specific evidence from the transcript. Mention professionalism issues prominently if any.' },
           strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
           weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
         },

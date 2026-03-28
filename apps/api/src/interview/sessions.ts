@@ -6,6 +6,7 @@ import type {
   RoomId,
   TrackId,
 } from '@fishjam-cloud/js-server-sdk';
+import { broadcast } from './ws';
 
 // ── Public status shape returned to the frontend ──────────────────────────
 
@@ -17,6 +18,8 @@ export type SessionStatus = {
   status: 'waiting' | 'active' | 'complete' | 'error';
   phase: InterviewPhase;
   assessment: { score: number; notes: string };
+  /** Accumulated observations from every updateAssessment call during the interview. */
+  assessmentLog: string[];
   agentPeerId: string;
   transcript: string | null;
   checklist: ChecklistProgress[];
@@ -42,6 +45,8 @@ export type ActiveSession = {
   deleteRoom: () => Promise<void>;
   messages: { role: 'ai' | 'user'; text: string }[];
   assessment: { score: number; notes: string };
+  /** Every observation from updateAssessment calls, in chronological order. */
+  assessmentLog: string[];
   status: 'waiting' | 'active' | 'complete' | 'error';
   error?: string;
   jobId: number;
@@ -91,6 +96,13 @@ export function markComplete(session: ActiveSession) {
   session.geminiSession = null;
   try { session.agent.disconnect(); } catch { /* */ }
   session.deleteRoom().catch(() => {});
+
+  const transcript = session.messages.map((m) => `${m.role}: ${m.text}`).join('\n');
+  broadcast(session.sessionId, {
+    type: 'complete',
+    transcript,
+    assessmentLog: session.assessmentLog,
+  });
 }
 
 /** Record that the candidate did something (spoke, sent audio). */
