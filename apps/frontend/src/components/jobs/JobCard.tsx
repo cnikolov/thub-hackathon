@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   Copy,
+  DollarSign,
   Mic,
   Pencil,
   Users,
@@ -52,6 +53,12 @@ export function JobCard({ job, onUpdated }: { job: Job; onUpdated?: () => void |
                   <Users size={14} />
                   {job.interviewType === 'technical' ? 'Technical' : 'Culture'} (primary)
                 </div>
+                {job.budget != null && (
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+                    <DollarSign size={14} className="text-emerald-600" />
+                    {job.budget.toLocaleString('en-US')} /yr
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-lg">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                   {job.status.toUpperCase()}

@@ -50,6 +50,7 @@ export type Job = {
   status: 'open' | 'closed';
   interviewType: 'intro' | 'technical';
   durationMinutes: number | null;
+  budget: number | null;
   questions:
     | { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[]
     | null;
