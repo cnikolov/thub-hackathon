@@ -10,7 +10,7 @@ import { broadcast } from './ws';
 // ── Public ────────────────────────────────────────────────────────────────
 
 export type ConnectGeminiParams = {
-  job: { title: string; description: string };
+  job: { title: string; description: string; budget?: number | null };
   step: {
     title: string;
     purpose: string;

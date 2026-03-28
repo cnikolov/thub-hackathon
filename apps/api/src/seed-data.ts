@@ -289,9 +289,10 @@ You LOVE this company and you're genuinely excited to tell people about it.
 COMPANY FACTS (use these to answer questions):
 - Hybrid setup: mostly remote, with 1–2 days per month in the office for team events, planning sessions, and social time.
 - Working hours: flexible core hours (10am–3pm overlap), the rest is up to you. No micromanagement.
-- Benefits: private health insurance (family included), gym membership or wellness budget, home office stipend (€500 on joining), annual learning budget (€1,500 for courses, conferences, books).
+- Benefits: private health insurance (family included), gym membership or wellness budget, home office stipend (€500 — available after passing 3-month probation so you can upgrade your workstation), annual learning budget (€1,500 for courses, conferences, books).
 - Bonuses: annual performance bonus (up to 15% of base salary), referral bonus (€2,000 per successful hire), quarterly team celebration budget.
 - PTO: 28 days + public holidays, plus an extra "recharge day" per quarter (no questions asked).
+- Office perks: amazing on-site kitchen with free delicious food — breakfast, lunch, and snacks all covered.
 - Tech stack: React, TypeScript, Bun, PostgreSQL, AWS — modern and pragmatic.
 - Team size: ~25 engineers across 4 squads. Each squad is cross-functional (design + frontend + backend + PM).
 - Culture: high trust, low bureaucracy, transparent salaries, weekly demos, monthly all-hands.
@@ -309,17 +310,21 @@ COMPANY FACTS (use these to answer questions):
 4. Wish them luck warmly: "You've got this! It was so lovely chatting with you."
 5. Call completeInterview.`,
         questions: [
-          { id: 'w1', text: 'What would you like to know about the company?', isMandatory: true },
-          { id: 'w2', text: 'Do you have any questions about benefits, bonuses, or compensation?', isMandatory: true },
-          { id: 'w3', text: 'Would you like to know about our working hours and hybrid setup?', isMandatory: true },
-          { id: 'w4', text: 'Any questions about the team, culture, or growth opportunities?', isMandatory: false },
+          { id: 'w1', text: 'Tell the candidate about the company, the team, and what the role involves.', isMandatory: true },
+          { id: 'w2', text: 'Explain the working hours: flexible core hours 10am-3pm, the rest is up to you, no micromanagement.', isMandatory: true },
+          { id: 'w3', text: 'Explain the hybrid setup: mostly remote, 1-2 days per month in the office for team events and planning.', isMandatory: true },
+          { id: 'w4', text: 'Cover the benefits: private health insurance (family included), gym/wellness budget, €500 home office stipend (available after passing 3-month probation to upgrade workstation), €1500 annual learning budget.', isMandatory: true },
+          { id: 'w5', text: 'Cover the perks and bonuses: annual performance bonus up to 15% of base salary, €2000 referral bonus, quarterly team celebration budget.', isMandatory: true },
+          { id: 'w6', text: 'Cover PTO: 28 days plus public holidays, plus an extra recharge day per quarter.', isMandatory: true },
+          { id: 'w7', text: 'Ask if the candidate has any questions about anything you covered.', isMandatory: true },
         ],
         checklist: [
           { id: 'cl-company', label: 'Explained what the company does and the role', required: true },
           { id: 'cl-hybrid', label: 'Covered hybrid setup (1-2 days/month in office)', required: true },
-          { id: 'cl-hours', label: 'Covered flexible working hours', required: true },
-          { id: 'cl-benefits', label: 'Covered benefits (health, gym, home office stipend)', required: true },
-          { id: 'cl-bonuses', label: 'Covered bonuses and PTO', required: true },
+          { id: 'cl-hours', label: 'Covered flexible working hours (10am-3pm core, rest flexible)', required: true },
+          { id: 'cl-benefits', label: 'Covered benefits (health insurance, gym, home office stipend after probation, learning budget)', required: true },
+          { id: 'cl-bonus', label: 'Covered annual performance bonus (up to 15% of base salary)', required: true },
+          { id: 'cl-pto', label: 'Covered PTO (28 days + holidays + recharge days)', required: true },
           { id: 'cl-next', label: 'Explained what the next interview step is', required: true },
         ],
       },
