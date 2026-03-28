@@ -392,21 +392,34 @@ function FishjamInterviewRoom({
   const leaveRoomRef = useRef(leaveRoom);
   leaveRoomRef.current = leaveRoom;
 
-  // Ref-stable function that unmutes only if currently muted
+  const aiUnlockedMicRef = useRef(false);
+
   const isMutedRef = useRef(isMicrophoneMuted);
   isMutedRef.current = isMicrophoneMuted;
   const toggleMicrophoneMuteRef = useRef(async (forceUnmute: boolean) => {
     if (forceUnmute && isMutedRef.current) {
+      aiUnlockedMicRef.current = true;
       await toggleMicrophoneMute();
       api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: false }).catch(() => {});
     }
   });
   toggleMicrophoneMuteRef.current = async (forceUnmute: boolean) => {
     if (forceUnmute && isMutedRef.current) {
+      aiUnlockedMicRef.current = true;
       await toggleMicrophoneMute();
       api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: false }).catch(() => {});
     }
   };
+
+  // Enforce mute the instant the mic comes alive — keeps it muted until
+  // the AI explicitly calls promptCandidate to unlock it.
+  useEffect(() => {
+    if (aiUnlockedMicRef.current) return;
+    if (isMicrophoneOn && !isMicrophoneMuted) {
+      toggleMicrophoneMute();
+      api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: true }).catch(() => {});
+    }
+  }, [isMicrophoneOn, isMicrophoneMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const agentPeer = remotePeers.find((p) => (p.id as string) === sessionData.agentPeerId);
   const agentPeerIds = useMemo(() => (agentPeer ? [agentPeer.id] : []), [agentPeer?.id]);
@@ -481,12 +494,12 @@ function FishjamInterviewRoom({
         });
         if (cancelled) return;
 
-        await joinRoom({ peerToken: sessionData.peerToken });
-        if (cancelled) return;
-
-        // Start muted so the AI can introduce itself without interruption
+        // Mute BEFORE joining so no audio leaks into the room
         await toggleMicrophoneMute();
         api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: true }).catch(() => {});
+
+        await joinRoom({ peerToken: sessionData.peerToken });
+        if (cancelled) return;
 
         await api.post(`/rooms/interview-session/${sessionData.sessionId}/start`, { stepIndex: pipelineIndex });
         if (cancelled) return;
@@ -517,6 +530,7 @@ function FishjamInterviewRoom({
 
             // AI requested unmute — automatically unmute the candidate
             if (res.data.unmuteRequested) {
+              console.log('[Interview] AI requested unmute — unlocking mic');
               toggleMicrophoneMuteRef.current(true);
             }
 
