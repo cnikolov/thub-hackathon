@@ -161,6 +161,9 @@ export function signalMicMuted(sessionId: string, muted: boolean): boolean {
   try {
     if (muted) {
       s.geminiSession.sendRealtimeInput({ audioStreamEnd: true } as any);
+      s.geminiSession.sendRealtimeInput({
+        text: '[The candidate has muted their microphone, indicating they are done speaking. You may respond now.]',
+      });
     }
   } catch { /* session may be closed */ }
   return true;

@@ -1,6 +1,6 @@
 /** Gemini Live API connection, message handling, and tool-call routing. */
 
-import { GoogleGenAI, Modality, Type, ThinkingLevel, StartSensitivity, EndSensitivity } from '@google/genai';
+import { GoogleGenAI, Modality, Type, StartSensitivity, EndSensitivity } from '@google/genai';
 import type { FishjamAgent, FishjamClient, TrackId, IncomingTrackData } from '@fishjam-cloud/js-server-sdk';
 import { buildSystemPrompt } from './prompts';
 import type { ActiveSession } from './sessions';
@@ -44,7 +44,7 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
       config: {
         responseModalities: [Modality.AUDIO],
         systemInstruction: systemPrompt,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        thinkingConfig: { thinkingBudget: 0 },
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
         realtimeInputConfig: {
           automaticActivityDetection: {
@@ -167,6 +167,51 @@ export function relayTrackData(session: ActiveSession) {
   });
 }
 
+// ── Audio buffer — accumulates small chunks to avoid playback stutter ────
+
+const BUFFER_FLUSH_MS = 150;
+const audioBuffers = new Map<string, { chunks: Uint8Array[]; timer: ReturnType<typeof setTimeout> | null }>();
+
+function bufferAndSendAudio(sessionId: string, agent: FishjamAgent, agentTrackId: TrackId, pcm: Uint8Array) {
+  let buf = audioBuffers.get(sessionId);
+  if (!buf) {
+    buf = { chunks: [], timer: null };
+    audioBuffers.set(sessionId, buf);
+  }
+  buf.chunks.push(pcm);
+
+  if (!buf.timer) {
+    buf.timer = setTimeout(() => {
+      flushAudioBuffer(sessionId, agent, agentTrackId);
+    }, BUFFER_FLUSH_MS);
+  }
+}
+
+function flushAudioBuffer(sessionId: string, agent: FishjamAgent, agentTrackId: TrackId) {
+  const buf = audioBuffers.get(sessionId);
+  if (!buf || buf.chunks.length === 0) return;
+
+  const totalLen = buf.chunks.reduce((sum, c) => sum + c.length, 0);
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of buf.chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  buf.chunks.length = 0;
+  buf.timer = null;
+
+  try { agent.sendData(agentTrackId, merged); } catch { /* agent may have disconnected */ }
+}
+
+export function clearAudioBuffer(sessionId: string) {
+  const buf = audioBuffers.get(sessionId);
+  if (buf) {
+    if (buf.timer) clearTimeout(buf.timer);
+    audioBuffers.delete(sessionId);
+  }
+}
+
 // ── Internal ──────────────────────────────────────────────────────────────
 
 function handleGeminiMessage(
@@ -187,9 +232,10 @@ function handleGeminiMessage(
       if (part.inlineData?.data) {
         const pcm24 = Buffer.from(part.inlineData.data, 'base64');
         const pcm16 = downsample24to16(pcm24);
-        try { agent.sendData(agentTrackId, pcm16); } catch { /* agent may have disconnected */ }
+        bufferAndSendAudio(session.sessionId, agent, agentTrackId, pcm16);
       }
       if (part.text?.includes('INTERVIEW_COMPLETE')) {
+        flushAudioBuffer(session.sessionId, agent, agentTrackId);
         markComplete(session);
         return;
       }
@@ -212,6 +258,7 @@ function handleGeminiMessage(
   }
 
   if (sc?.interrupted) {
+    clearAudioBuffer(session.sessionId);
     try { agent.interruptTrack(agentTrackId); } catch { /* */ }
   }
 

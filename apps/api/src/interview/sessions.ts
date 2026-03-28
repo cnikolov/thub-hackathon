@@ -7,6 +7,7 @@ import type {
   TrackId,
 } from '@fishjam-cloud/js-server-sdk';
 import { broadcast } from './ws';
+import { clearAudioBuffer } from './gemini';
 
 // ── Public status shape returned to the frontend ──────────────────────────
 
@@ -79,6 +80,7 @@ export const sessions = new Map<string, ActiveSession>();
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 export function teardown(s: ActiveSession) {
+  clearAudioBuffer(s.sessionId);
   if (s.inactivityTimer) { clearInterval(s.inactivityTimer); s.inactivityTimer = null; }
   if (s.videoFrameTimer) { clearInterval(s.videoFrameTimer); s.videoFrameTimer = null; }
   try { s.geminiSession?.close(); } catch { /* */ }
@@ -90,6 +92,7 @@ export function markComplete(session: ActiveSession) {
   if (session.status === 'complete') return;
   session.status = 'complete';
   session.phase = 'complete';
+  clearAudioBuffer(session.sessionId);
   if (session.inactivityTimer) { clearInterval(session.inactivityTimer); session.inactivityTimer = null; }
   if (session.videoFrameTimer) { clearInterval(session.videoFrameTimer); session.videoFrameTimer = null; }
   try { session.geminiSession?.close(); } catch { /* */ }
@@ -113,8 +116,9 @@ export function touchActivity(session: ActiveSession) {
 
 // ── Inactivity monitor ───────────────────────────────────────────────────
 
-const NUDGE_AFTER_MS = 30_000;
-const KICK_AFTER_MS = 60_000;
+const NUDGE_AFTER_MS = 5_000;
+const KICK_AFTER_MS = 30_000;
+const CHECK_INTERVAL_MS = 2_000;
 
 export function startInactivityMonitor(session: ActiveSession) {
   if (session.inactivityTimer) return;
@@ -133,7 +137,7 @@ export function startInactivityMonitor(session: ActiveSession) {
     if (idle >= KICK_AFTER_MS && session.nudgeSent) {
       try {
         session.geminiSession?.sendRealtimeInput({
-          text: 'The candidate has been unresponsive for over a minute. Politely end the interview — say something like "It seems like you may have stepped away. I\'ll go ahead and wrap up for now. Thank you for your time, and feel free to rejoin if you\'d like to continue." Then call completeInterview.',
+          text: 'The candidate has been unresponsive for 30 seconds after your check-in. Politely end the interview — say "It seems like you may have stepped away. I\'ll wrap up for now — thanks for your time!" Then call completeInterview.',
         });
       } catch { /* */ }
       return;
@@ -143,11 +147,11 @@ export function startInactivityMonitor(session: ActiveSession) {
       session.nudgeSent = true;
       try {
         session.geminiSession?.sendRealtimeInput({
-          text: 'The candidate has been quiet for about 30 seconds. Gently check in — say something like "Hey, are you still there? Take your time if you need a moment."',
+          text: 'The candidate has been silent for a few seconds. Briefly repeat your last question or ask "Can you hear me?" to check the connection. Keep it short — one sentence max.',
         });
       } catch { /* */ }
     }
-  }, 5_000);
+  }, CHECK_INTERVAL_MS);
 }
 
 // ── Reaper — garbage-collects stale sessions ──────────────────────────────

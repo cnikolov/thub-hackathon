@@ -666,7 +666,9 @@ function FishjamInterviewRoom({
               disabled={micLockedByAi}
               onClick={() => {
                 if (micLockedByAi) return;
+                const willMute = !isMicrophoneMuted;
                 toggleMicrophoneMute();
+                api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: willMute }).catch(() => {});
               }}
               className={cn(
                 'relative flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-2xl font-bold text-sm transition-all shadow-md',
