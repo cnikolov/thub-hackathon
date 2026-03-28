@@ -4,6 +4,7 @@ export {
   getSessionMeta,
   startSession,
   cleanupSession,
+  signalMicMuted,
 } from './agent';
 
 export { shutdownReaper } from './sessions';

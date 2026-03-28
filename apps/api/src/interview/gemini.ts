@@ -93,6 +93,11 @@ export async function connectGemini(session: ActiveSession, params: ConnectGemin
                 parameters: { type: Type.OBJECT, properties: {}, required: [] },
               },
               {
+                name: 'promptCandidate',
+                description: "Call this EVERY TIME you finish speaking and want the candidate to respond. This unmutes the candidate's microphone. You MUST call this after asking any question or making a statement that expects a reply.",
+                parameters: { type: Type.OBJECT, properties: {}, required: [] },
+              },
+              {
                 name: 'completeInterview',
                 description: 'Call this function when the interview round is finished and all questions have been covered.',
                 parameters: {
@@ -243,6 +248,15 @@ function handleGeminiMessage(
         } catch { /* */ }
       }
 
+      if (call.name === 'promptCandidate') {
+        session.unmuteRequested = true;
+        try {
+          session.geminiSession?.sendToolResponse({
+            functionResponses: [{ name: 'promptCandidate', response: { status: 'success' }, id: call.id }],
+          });
+        } catch { /* */ }
+      }
+
       if (call.name === 'completeInterview') {
         try {
           session.geminiSession?.sendToolResponse({
@@ -256,59 +270,11 @@ function handleGeminiMessage(
   }
 }
 
-// ── Video capture ────────────────────────────────────────────────────────
+// ── Video capture (disabled — captureImage causes agent crash) ───────────
 
-const VIDEO_CAPTURE_INTERVAL_MS = 1_000; // 1 FPS — Gemini's recommended rate
-
-export function startVideoCapture(session: ActiveSession, fishjamClient: FishjamClient) {
-  let candidateVideoTrackId: string | null = null;
-  let discovering = false;
-
-  async function discoverVideoTrack() {
-    if (discovering) return;
-    discovering = true;
-    try {
-      const room = await fishjamClient.getRoom(session.roomId);
-      for (const peer of room.peers) {
-        if (peer.id === session.agentPeerId) continue;
-        const videoTrack = peer.tracks?.find(
-          (t: any) => t.type === 1 || t.type === 'TRACK_TYPE_VIDEO' || t.metadata?.type === 'camera'
-        );
-        if (videoTrack?.id) {
-          candidateVideoTrackId = videoTrack.id;
-          console.log('[video-capture] Discovered candidate video track:', candidateVideoTrackId);
-          break;
-        }
-      }
-    } catch (err) {
-      console.warn('[video-capture] Failed to discover video track:', err);
-    } finally {
-      discovering = false;
-    }
-  }
-
-  session.videoFrameTimer = setInterval(async () => {
-    if ((session.status as string) === 'complete') {
-      if (session.videoFrameTimer) { clearInterval(session.videoFrameTimer); session.videoFrameTimer = null; }
-      return;
-    }
-    if (!session.geminiSession) return;
-
-    if (!candidateVideoTrackId) {
-      await discoverVideoTrack();
-      if (!candidateVideoTrackId) return;
-    }
-
-    try {
-      const image = await session.agent.captureImage(candidateVideoTrackId, 3_000);
-      const base64 = Buffer.from(image.data).toString('base64');
-      session.geminiSession?.sendRealtimeInput({
-        video: { data: base64, mimeType: image.contentType || 'image/jpeg' },
-      });
-    } catch {
-      candidateVideoTrackId = null;
-    }
-  }, VIDEO_CAPTURE_INTERVAL_MS);
+export function startVideoCapture(_session: ActiveSession, _fishjamClient: FishjamClient) {
+  // TODO: re-enable once Fishjam captureImage stability is resolved.
+  // The agent.captureImage() call causes "internal server error" agent disconnects.
 }
 
 // ── Audio helpers ─────────────────────────────────────────────────────────

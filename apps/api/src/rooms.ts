@@ -10,6 +10,7 @@ import {
   getSessionMeta,
   startSession,
   cleanupSession,
+  signalMicMuted,
 } from './interview';
 
 const sqlite = new Database('dev.db');
@@ -151,6 +152,20 @@ roomsController.get('/interview-session/:sessionId/meta', (c) => {
     return c.json({ success: false, error: 'Session not found' }, 404);
   }
   return c.json({ success: true, data: meta });
+});
+
+roomsController.post('/interview-session/:sessionId/mic-muted', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const body = await c.req.json().catch(() => ({}));
+    const muted = Boolean(body.muted);
+    const ok = signalMicMuted(sessionId, muted);
+    if (!ok) return c.json({ success: false, error: 'Session not found or not active' }, 404);
+    return c.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to signal mic state';
+    return c.json({ success: false, error: message }, 500);
+  }
 });
 
 roomsController.delete('/interview-session/:sessionId', (c) => {

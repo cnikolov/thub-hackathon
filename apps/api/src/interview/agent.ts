@@ -10,6 +10,8 @@ import { getKickoffMessage } from './prompts';
 export function getSessionStatus(sessionId: string): SessionStatus | null {
   const s = sessions.get(sessionId);
   if (!s) return null;
+  const unmuteRequested = s.unmuteRequested;
+  if (unmuteRequested) s.unmuteRequested = false; // auto-clear on read
   return {
     status: s.status,
     phase: s.phase,
@@ -18,6 +20,7 @@ export function getSessionStatus(sessionId: string): SessionStatus | null {
     transcript: s.status === 'complete' ? s.messages.map((m) => `${m.role}: ${m.text}`).join('\n') : null,
     checklist: s.checklist,
     error: s.error,
+    unmuteRequested,
   };
 }
 
@@ -117,6 +120,7 @@ export async function createInterviewSession(
     nudgeSent: false,
     inactivityTimer: null,
     videoFrameTimer: null,
+    unmuteRequested: false,
   };
   sessions.set(sessionId, session);
 
@@ -146,6 +150,17 @@ export function startSession(sessionId: string, stepIndex: number): boolean {
     console.error(`[Session ${sessionId}] Failed to send kickoff:`, err);
   }
   startInactivityMonitor(s);
+  return true;
+}
+
+export function signalMicMuted(sessionId: string, muted: boolean): boolean {
+  const s = sessions.get(sessionId);
+  if (!s?.geminiSession || s.status !== 'active') return false;
+  try {
+    if (muted) {
+      s.geminiSession.sendRealtimeInput({ audioStreamEnd: true } as any);
+    }
+  } catch { /* session may be closed */ }
   return true;
 }
 

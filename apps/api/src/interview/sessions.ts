@@ -21,6 +21,8 @@ export type SessionStatus = {
   transcript: string | null;
   checklist: ChecklistProgress[];
   error?: string;
+  /** AI requested the candidate be unmuted so it can hear a response. */
+  unmuteRequested: boolean;
 };
 
 // ── Internal session type ─────────────────────────────────────────────────
@@ -61,6 +63,8 @@ export type ActiveSession = {
   inactivityTimer: ReturnType<typeof setInterval> | null;
   /** Handle for the periodic video-frame capture interval. */
   videoFrameTimer: ReturnType<typeof setInterval> | null;
+  /** AI called promptCandidate — frontend should unmute. */
+  unmuteRequested: boolean;
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────
