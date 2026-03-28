@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph APP["TeamHub — AI Hiring Platform"]
+        direction TB
+
+        subgraph FRONTEND["Frontend (React SPA)"]
+            RECRUITER["Recruiter Dashboard\nJobs · Candidates · Scores"]
+            INTERVIEW_UI["Interview Room\nCamera · Mic · Live Progress"]
+        end
+
+        subgraph BACKEND["Backend (Bun API)"]
+            REST["REST API\nJobs · Candidates · Auth"]
+            INTERVIEW_ENGINE["Interview Engine\nPrompts · Session State\nTool Routing · VAD"]
+            WS["WebSocket Hub\nLive Events"]
+        end
+
+        DB[("SQLite\nJobs · Candidates\nTranscripts · Scores")]
+    end
+
+    subgraph EXTERNAL["External Services"]
+        GEMINI["Google Gemini\nLive Voice AI\nBatch Scoring"]
+        FISHJAM["Fishjam Cloud\nWebRTC Media"]
+    end
+
+    RECRUITER -->|"HTTP"| REST
+    INTERVIEW_UI -->|"HTTP"| REST
+    INTERVIEW_UI -->|"WebSocket"| WS
+    INTERVIEW_UI <-->|"WebRTC\naudio + video"| FISHJAM
+
+    REST --> DB
+    INTERVIEW_ENGINE --> DB
+    INTERVIEW_ENGINE --> WS
+
+    INTERVIEW_ENGINE <-->|"Live API\nvoice + tools"| GEMINI
+    REST -->|"Batch API\nscoring + analysis"| GEMINI
+    INTERVIEW_ENGINE <-->|"Server SDK\nrooms + audio relay"| FISHJAM
