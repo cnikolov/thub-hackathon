@@ -19,7 +19,7 @@ async function seed() {
   // 2. Create a Demo Job
   console.log('Creating demo job...');
   const [job] = await db.insert(jobs).values({
-    projectId: project.id,
+    projectId: project!.id,
     title: 'Senior React Developer',
     description: 'Looking for a Senior React Developer to join our core team.',
     requirements: '5+ years of React experience, Strong TypeScript skills.',
@@ -33,7 +33,7 @@ async function seed() {
   // 3. Create a Demo Candidate
   console.log('Creating demo candidate...');
   await db.insert(candidates).values({
-    jobId: job.id,
+    jobId: job!.id,
     name: 'Jane Doe',
     email: 'jane.doe@example.com',
     score: 85,

@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "better-sqlite3": "^12.8.0",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.21.0"
   },

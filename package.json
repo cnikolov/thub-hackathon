@@ -5,12 +5,13 @@
     "apps/*",
     "packages/*"
   ],
-  "module": "index.ts",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
+  "scripts": {
+    "dev": "concurrently \"cd apps/api && bun run dev\" \"cd apps/frontend && bun run dev\""
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "@fishjam-cloud/react-client": "^0.25.3"
   }
 }
