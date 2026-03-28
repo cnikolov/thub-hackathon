@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Briefcase,
@@ -6,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   Copy,
+  Mic,
   Users,
 } from 'lucide-react';
 import type { Job } from '../../lib/types';
@@ -55,7 +57,7 @@ export function JobCard({ job }: { job: Job }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
             <div className="bg-surface border border-border rounded-xl px-4 py-2 flex items-center gap-3">
               <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Share Code</span>
               <span className="font-mono font-bold text-primary">{job.shareCode}</span>
@@ -63,6 +65,15 @@ export function JobCard({ job }: { job: Job }) {
                 {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
               </button>
             </div>
+            <Link
+              to={`/interview?code=${encodeURIComponent(job.shareCode)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover transition-colors shadow-md shadow-primary/15"
+            >
+              <Mic size={16} />
+              Open interview
+            </Link>
             <button
               type="button"
               onClick={() => setIsExpanded(!isExpanded)}

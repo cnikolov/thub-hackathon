@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { memo, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  ArrowRight,
   Briefcase,
   Check,
   LogOut,
@@ -633,7 +634,7 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
               <p className="text-xs text-muted font-semibold uppercase tracking-widest">
                 {steps.length > 1
                   ? `Round ${pipelineIndex + 1} of ${steps.length}${activeRound?.title ? `: ${activeRound.title}` : ''}`
-                  : 'AI interview session'}
+                  : 'Interview session'}
               </p>
             </div>
           </div>
@@ -668,7 +669,7 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
                 <div className="w-20 h-20 bg-primary/10 rounded-[32px] flex items-center justify-center text-primary mx-auto mb-6">
                   <Mic size={40} />
                 </div>
-                <h3 className="text-3xl font-bold tracking-tight text-ink">Voice interview session</h3>
+                <h3 className="text-3xl font-bold tracking-tight text-ink">Open interview</h3>
                 <p className="text-muted text-sm leading-relaxed">
                   Voice-driven interview. Use a working microphone in a quiet place. Set{' '}
                   <code className="text-xs bg-surface px-1 rounded">VITE_GEMINI_API_KEY</code> for live AI audio.
@@ -804,14 +805,80 @@ function InterviewSession({ code, onExit }: { code: string; onExit: () => void }
   );
 }
 
+/** Public entry: enter a job share code, then start the voice session (no login required). */
+function InterviewLanding() {
+  const [codeInput, setCodeInput] = useState('');
+  const navigate = useNavigate();
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const c = codeInput.trim().toUpperCase();
+    if (!c) return;
+    navigate(`/interview?code=${encodeURIComponent(c)}`);
+  }
+
+  return (
+    <div className="min-h-svh w-full flex flex-col items-center justify-center bg-surface p-6">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="max-w-md w-full bg-card rounded-[40px] p-10 sm:p-12 card-shadow border border-border"
+      >
+        <div className="w-16 h-16 bg-primary/15 rounded-2xl flex items-center justify-center text-primary mx-auto mb-8">
+          <Mic size={32} />
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-ink text-center mb-2">Open interview</h1>
+        <p className="text-muted text-sm text-center mb-8 leading-relaxed">
+          Enter the share code from your invitation to join this role&apos;s interview. Use a microphone in a quiet space.
+          For live voice, add <code className="text-xs bg-surface px-1 rounded">VITE_GEMINI_API_KEY</code> to your
+          environment.
+        </p>
+
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label htmlFor="share-code" className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2 px-1">
+              Share code
+            </label>
+            <input
+              id="share-code"
+              type="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              placeholder="e.g. REACT24"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+              className="w-full bg-surface border border-border rounded-2xl px-4 py-4 text-sm font-mono font-semibold tracking-wider text-ink outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary/40"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={!codeInput.trim()}
+            className="w-full py-4 bg-primary text-white rounded-2xl font-bold text-sm hover:bg-primary-hover transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50 disabled:shadow-none"
+          >
+            Continue
+            <ArrowRight size={18} />
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-muted mt-8">
+          Hiring team?{' '}
+          <Link to="/login" className="text-primary font-semibold hover:underline">
+            Sign in to TeamHub
+          </Link>
+        </p>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function InterviewViewPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const code = searchParams.get('code')?.toUpperCase() ?? '';
+  const code = searchParams.get('code')?.trim().toUpperCase() ?? '';
 
   if (!code) {
-    return <Navigate to="/login" replace />;
+    return <InterviewLanding />;
   }
 
-  return <InterviewSession code={code} onExit={() => navigate('/login')} />;
+  return <InterviewSession code={code} onExit={() => navigate('/interview', { replace: true })} />;
 }

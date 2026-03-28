@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Layout, LogOut, ChevronRight } from 'lucide-react';
+import { Layout, LogOut, ChevronRight, Mic } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 export function Login() {
@@ -107,6 +107,14 @@ export function Login() {
             <ChevronRight size={20} />
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => navigate('/interview')}
+          className="mt-4 w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold text-primary hover:bg-primary/5 rounded-xl transition-colors"
+        >
+          <Mic size={18} />
+          Open interview
+        </button>
       </motion.div>
     </div>
   );

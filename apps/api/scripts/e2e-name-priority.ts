@@ -1,12 +1,19 @@
 /**
  * E2E: verify that searching by name returns that candidate FIRST,
  * even when many other candidates match the same token in their notes/transcript.
+ * Cleans up its own test data after running.
  *
  * Run: bun run scripts/e2e-name-priority.ts   (needs seeded dev.db)
  */
+import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { eq } from 'drizzle-orm';
+import { candidates } from '../src/schema.ts';
 import { app } from '../src/index.ts';
 
 const TAG = `np_${Date.now()}`;
+const cleanupDb = drizzle(new Database('dev.db'));
+const idsToClean: number[] = [];
 
 async function json(res: Response) {
   return JSON.parse(await res.text()) as {
@@ -14,6 +21,12 @@ async function json(res: Response) {
     error?: string;
     data?: unknown;
   };
+}
+
+async function cleanup() {
+  for (const id of idsToClean) {
+    await cleanupDb.delete(candidates).where(eq(candidates.id, id));
+  }
 }
 
 async function main() {
@@ -46,8 +59,8 @@ async function main() {
   });
   const nmBody = await json(nameMatchCandidate);
   const nameId = (nmBody.data as { id: number }).id;
+  idsToClean.push(nameId);
 
-  const bodyOnlyIds: number[] = [];
   for (let i = 0; i < 5; i++) {
     const res = await app.request('http://t/candidates', {
       method: 'POST',
@@ -61,7 +74,7 @@ async function main() {
       }),
     });
     const b = await json(res);
-    bodyOnlyIds.push((b.data as { id: number }).id);
+    idsToClean.push((b.data as { id: number }).id);
   }
 
   const q = encodeURIComponent(`Zynara ${TAG}`);
@@ -93,7 +106,12 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await cleanup();
+    process.exit(process.exitCode ?? 0);
+  });
