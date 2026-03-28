@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "generate-csv-pdf": "bun run scripts/generate-csv-pdf.ts",
+    "test:e2e-cv": "bun run scripts/e2e-cv-search.ts",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
@@ -12,8 +14,10 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/pdf-parse": "^1.1.5",
     "better-sqlite3": "^12.8.0",
     "drizzle-kit": "^0.31.10",
+    "pdf-lib": "^1.17.1",
     "tsx": "^4.21.0"
   },
   "peerDependencies": {
@@ -23,6 +27,7 @@
     "@fishjam-cloud/js-server-sdk": "^0.25.5",
     "@google/genai": "^1.46.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.9"
+    "hono": "^4.12.9",
+    "pdf-parse": "^2.4.5"
   }
 }

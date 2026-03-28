@@ -5,6 +5,12 @@ import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { authController } from './auth';
 import { roomsController } from './rooms';
+import { dashboardController } from './dashboard';
+import { projectsController } from './projects';
+import { jobsController } from './jobs';
+import { candidatesController } from './candidates';
+import { aiController } from './ai';
+import { devController } from './dev';
 
 // Initialize embedded SQLite database
 const sqlite = new Database('dev.db');
@@ -22,6 +28,14 @@ app.get('/', (c) => {
 
 app.route('/auth', authController);
 app.route('/rooms', roomsController);
+app.route('/dashboard', dashboardController);
+app.route('/projects', projectsController);
+app.route('/jobs', jobsController);
+app.route('/candidates', candidatesController);
+app.route('/ai', aiController);
+app.route('/dev', devController);
+
+export { app };
 
 export default {
   port: 3001,
