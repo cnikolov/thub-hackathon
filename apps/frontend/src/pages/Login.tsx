@@ -25,7 +25,7 @@ export function Login() {
       await login(email.trim() || 'admin@teamhub.local');
       navigate('/dashboard', { replace: true });
     } catch {
-      setError('Could not sign in. Is the API running?');
+      setError('Could not sign in. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -39,8 +39,8 @@ export function Login() {
 
   if (!isReady) {
     return (
-      <div className="h-svh w-full flex items-center justify-center bg-surface font-mono text-sm text-muted">
-        LOADING_SYSTEM…
+      <div className="h-svh w-full flex flex-col items-center justify-center bg-surface gap-3">
+        <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
       </div>
     );
   }
@@ -57,7 +57,7 @@ export function Login() {
         </div>
 
         <h1 className="text-3xl font-bold tracking-tight mb-2 text-ink">TeamHub</h1>
-        <p className="text-muted text-sm mb-10">Modern HR Management System</p>
+        <p className="text-muted text-sm mb-10">Talent management platform</p>
 
         <form onSubmit={handleSignIn} className="space-y-6">
           {error && (
@@ -86,7 +86,7 @@ export function Login() {
             <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest">
-            <span className="bg-card px-4 text-muted">Candidate access</span>
+            <span className="bg-card px-4 text-muted">Have an interview code?</span>
           </div>
         </div>
 

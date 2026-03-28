@@ -150,7 +150,7 @@ export function Jobs() {
               <p className="text-muted italic">No job postings found for this project.</p>
             </div>
           ) : (
-            jobs.map((job) => <JobCard key={job.id} job={job} />)
+            jobs.map((job) => <JobCard key={job.id} job={job} onUpdated={loadJobs} />)
           )}
         </div>
       </motion.div>

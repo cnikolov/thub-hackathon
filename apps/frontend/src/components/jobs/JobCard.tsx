@@ -8,19 +8,22 @@ import {
   Clock,
   Copy,
   Mic,
+  Pencil,
   Users,
 } from 'lucide-react';
 import type { Job } from '../../lib/types';
 import { cn } from '../../lib/utils';
+import { JobEditModal } from './JobEditModal';
 
 function sortedSteps(job: Job) {
   const s = job.interviewSteps ?? [];
   return [...s].sort((a, b) => a.stepOrder - b.stepOrder);
 }
 
-export function JobCard({ job }: { job: Job }) {
+export function JobCard({ job, onUpdated }: { job: Job; onUpdated?: () => void | Promise<void> }) {
   const [isCopied, setIsCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const steps = sortedSteps(job);
   const roundCount = steps.length || 1;
 
@@ -65,6 +68,14 @@ export function JobCard({ job }: { job: Job }) {
                 {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface border border-border text-xs font-bold text-ink hover:bg-white hover:border-primary/30 transition-all"
+            >
+              <Pencil size={14} />
+              Edit
+            </button>
             <Link
               to={`/interview?code=${encodeURIComponent(job.shareCode)}`}
               target="_blank"
@@ -105,15 +116,44 @@ export function JobCard({ job }: { job: Job }) {
                       <li key={st.id ?? `legacy-${i}`} className="text-ink">
                         <span className="font-semibold">{st.title}</span>
                         <span className="text-muted font-normal"> — {st.purpose}</span>
-                        <div className="mt-1 ml-6 text-xs text-muted pl-0 list-none">
-                          {(st.questions ?? []).length > 0 ? (
-                            <ul className="space-y-1 list-disc list-inside">
-                              {(st.questions ?? []).map((q) => (
-                                <li key={q.id}>{q.text}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <span>No scripted questions for this round.</span>
+                        <div className="mt-2 ml-6 text-xs text-muted pl-0 list-none space-y-3">
+                          {st.introPrompt && (
+                            <div>
+                              <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Intro</span>
+                              <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{st.introPrompt}</p>
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Objectives</span>
+                            {(st.questions ?? []).length > 0 ? (
+                              <ul className="mt-0.5 space-y-1 list-disc list-inside">
+                                {(st.questions ?? []).map((q) => (
+                                  <li key={q.id}>{q.text}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-0.5">No scripted questions for this round.</p>
+                            )}
+                          </div>
+                          {(st.checklist ?? []).length > 0 && (
+                            <div>
+                              <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Checklist</span>
+                              <ul className="mt-1 space-y-0.5 list-none">
+                                {(st.checklist ?? []).map((c) => (
+                                  <li key={c.id} className="flex items-center gap-1.5">
+                                    <span className={cn('w-1.5 h-1.5 rounded-full', c.required ? 'bg-primary' : 'bg-muted/40')} />
+                                    {c.label}
+                                    {!c.required && <span className="text-muted/60 italic ml-1">(optional)</span>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {st.outroPrompt && (
+                            <div>
+                              <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Outro</span>
+                              <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{st.outroPrompt}</p>
+                            </div>
                           )}
                         </div>
                       </li>
@@ -125,6 +165,14 @@ export function JobCard({ job }: { job: Job }) {
           )}
         </AnimatePresence>
       </div>
+
+      {editOpen && (
+        <JobEditModal
+          job={job}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => { setEditOpen(false); onUpdated?.(); }}
+        />
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ export type ConnectGeminiParams = {
     title: string;
     purpose: string;
     interviewType: string;
+    durationMinutes?: number | null;
     systemPrompt: string;
     introPrompt?: string | null;
     outroPrompt?: string | null;

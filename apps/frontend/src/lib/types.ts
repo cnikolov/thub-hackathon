@@ -17,9 +17,15 @@ export type JobInterviewStep = {
   interviewType: 'intro' | 'technical';
   durationMinutes: number | null;
   systemPrompt: string;
+  /** AI instructions for the intro phase (greeting, name confirmation, round overview). */
+  introPrompt: string | null;
+  /** AI instructions for the outro phase (wrap-up, next steps, farewell). */
+  outroPrompt: string | null;
   questions:
     | { id: string; text: string; isMandatory: boolean; possibleAnswers?: string[] }[]
     | null;
+  /** Must-cover checklist items the AI needs to confirm during the interview. */
+  checklist: { id: string; label: string; required: boolean }[] | null;
   createdAt: Date | string | null;
   /** Synthetic single-step fallback when no rows exist in `job_interview_steps`. */
   legacy?: boolean;
@@ -81,6 +87,17 @@ export type Candidate = {
   createdAt: Date | string | null;
   /** Present when list was ranked by semantic search (0–1 cosine similarity). */
   matchScore?: number;
+};
+
+export type InterviewAttendance = {
+  id: number;
+  jobId: number;
+  name: string;
+  email: string;
+  round: number | null;
+  joinedAt: Date | string | null;
+  completedAt: Date | string | null;
+  jobTitle: string;
 };
 
 export type CandidatePipelineMeta = {

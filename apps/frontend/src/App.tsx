@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { Dashboard } from './pages/Dashboard';
 import { Jobs } from './pages/Jobs';
 import { Candidates } from './pages/Candidates';
+import { Attendance } from './pages/Attendance';
 import { Login } from './pages/Login';
 import InterviewViewPage from './pages/InterviewView';
 
@@ -29,7 +30,7 @@ export default function App() {
             <Route path="candidates" element={<Candidates />} />
             <Route path="inbox" element={<Placeholder title="Inbox" />} />
             <Route path="calendar" element={<Placeholder title="Calendar" />} />
-            <Route path="attendance" element={<Placeholder title="Attendance" />} />
+            <Route path="attendance" element={<Attendance />} />
             <Route path="performance" element={<Placeholder title="Performance" />} />
             <Route path="settings" element={<Placeholder title="Settings" />} />
             <Route path="*" element={<Placeholder title="Page not found" />} />

@@ -1,11 +1,13 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { motion } from 'motion/react';
-import { ChevronDown, ChevronUp, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Plus, Sparkles, Trash2, Upload } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { api, type ApiResult } from '../../lib/api';
 import type { Job, Question } from '../../lib/types';
 import { cn } from '../../lib/utils';
+
+type ChecklistItemDraft = { id: string; label: string; required: boolean };
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -20,8 +22,28 @@ type InterviewRoundDraft = {
   interviewType: 'intro' | 'technical';
   durationMinutes: number;
   systemPrompt: string;
+  introPrompt: string;
+  outroPrompt: string;
   questions: Question[];
+  checklist: ChecklistItemDraft[];
 };
+
+const DEFAULT_CHECKLIST: ChecklistItemDraft[] = [
+  { id: 'cl-start', label: 'When can you start?', required: true },
+  { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
+  { id: 'cl-remote', label: 'Are you open to remote / hybrid / on-site?', required: true },
+  { id: 'cl-notice', label: 'What is your notice period?', required: true },
+];
+
+const DEFAULT_INTRO_PROMPT = `1. Greet the candidate warmly. Introduce yourself as the AI interview assistant.
+2. Confirm their name.
+3. Give a one-sentence overview of what this round covers.
+4. Ask if they have any quick questions before you begin.`;
+
+const DEFAULT_OUTRO_PROMPT = `1. Signal the wind-down: "Great conversation — we're wrapping up!"
+2. Give brief positive feedback on one specific thing.
+3. Ask if they have any questions about the role or team.
+4. Thank them warmly and end the session.`;
 
 function defaultRound(overrides: Partial<InterviewRoundDraft> = {}): InterviewRoundDraft {
   return {
@@ -31,7 +53,10 @@ function defaultRound(overrides: Partial<InterviewRoundDraft> = {}): InterviewRo
     interviewType: 'intro',
     durationMinutes: 15,
     systemPrompt: '',
+    introPrompt: DEFAULT_INTRO_PROMPT,
+    outroPrompt: DEFAULT_OUTRO_PROMPT,
     questions: [],
+    checklist: [...DEFAULT_CHECKLIST],
     ...overrides,
   };
 }
@@ -144,6 +169,32 @@ export function JobCreateModal({
     );
   }
 
+  function addChecklistItem(roundId: string) {
+    setInterviewSteps((prev) =>
+      prev.map((r) =>
+        r.id === roundId
+          ? { ...r, checklist: [...r.checklist, { id: `cl-${Math.random().toString(36).slice(2, 9)}`, label: '', required: true }] }
+          : r,
+      ),
+    );
+  }
+
+  function removeChecklistItem(roundId: string, cid: string) {
+    setInterviewSteps((prev) =>
+      prev.map((r) => (r.id === roundId ? { ...r, checklist: r.checklist.filter((c) => c.id !== cid) } : r)),
+    );
+  }
+
+  function updateChecklistItem(roundId: string, cid: string, updates: Partial<ChecklistItemDraft>) {
+    setInterviewSteps((prev) =>
+      prev.map((r) =>
+        r.id === roundId
+          ? { ...r, checklist: r.checklist.map((c) => (c.id === cid ? { ...c, ...updates } : c)) }
+          : r,
+      ),
+    );
+  }
+
   async function handleFileUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -228,7 +279,10 @@ export function JobCreateModal({
         systemPrompt:
           s.systemPrompt.trim() ||
           'You are a professional AI interviewer. Be clear, fair, and conversational.',
+        introPrompt: s.introPrompt.trim() || null,
+        outroPrompt: s.outroPrompt.trim() || null,
         questions: s.questions.filter((q) => q.text.trim()),
+        checklist: s.checklist.filter((c) => c.label.trim()),
       }));
 
       const first = stepsPayload[0]!;
@@ -451,13 +505,35 @@ export function JobCreateModal({
                             </div>
                             <div>
                               <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-1 px-1">
-                                System prompt
+                                System prompt (objectives)
                               </label>
                               <textarea
                                 value={round.systemPrompt}
                                 onChange={(e) => updateRound(round.id, { systemPrompt: e.target.value })}
                                 className="w-full bg-white border border-border rounded-xl p-3 text-sm outline-none h-24 resize-none"
                                 placeholder="Instructions for the AI interviewer this round…"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-1 px-1">
+                                Intro prompt
+                              </label>
+                              <textarea
+                                value={round.introPrompt}
+                                onChange={(e) => updateRound(round.id, { introPrompt: e.target.value })}
+                                className="w-full bg-white border border-border rounded-xl p-3 text-sm outline-none h-20 resize-none"
+                                placeholder="How the AI opens this round (greeting, name confirmation, expectations)…"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-1 px-1">
+                                Outro prompt
+                              </label>
+                              <textarea
+                                value={round.outroPrompt}
+                                onChange={(e) => updateRound(round.id, { outroPrompt: e.target.value })}
+                                className="w-full bg-white border border-border rounded-xl p-3 text-sm outline-none h-20 resize-none"
+                                placeholder="How the AI wraps up (feedback, questions, farewell)…"
                               />
                             </div>
                           </div>
@@ -492,6 +568,50 @@ export function JobCreateModal({
                                 className="w-full py-2 border border-dashed border-border rounded-xl text-muted hover:text-primary hover:border-primary/40 text-xs font-bold transition-all"
                               >
                                 + Add question
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2 px-1">
+                              Checklist — items the AI must cover
+                            </label>
+                            <div className="space-y-2 max-h-40 overflow-y-auto">
+                              {round.checklist.map((c) => (
+                                <div key={c.id} className="bg-white p-3 rounded-xl border border-border group relative flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateChecklistItem(round.id, c.id, { required: !c.required })}
+                                    className={cn(
+                                      'w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors',
+                                      c.required ? 'border-primary bg-primary text-white' : 'border-border text-transparent hover:border-primary/40',
+                                    )}
+                                    title={c.required ? 'Required — click to make optional' : 'Optional — click to make required'}
+                                  >
+                                    {c.required && <Check size={12} />}
+                                  </button>
+                                  <input
+                                    type="text"
+                                    value={c.label}
+                                    onChange={(e) => updateChecklistItem(round.id, c.id, { label: e.target.value })}
+                                    className="flex-1 bg-transparent text-sm font-medium outline-none"
+                                    placeholder="e.g. When can you start?"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeChecklistItem(round.id, c.id)}
+                                    className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => addChecklistItem(round.id)}
+                                className="w-full py-2 border border-dashed border-border rounded-xl text-muted hover:text-primary hover:border-primary/40 text-xs font-bold transition-all"
+                              >
+                                + Add checklist item
                               </button>
                             </div>
                           </div>
