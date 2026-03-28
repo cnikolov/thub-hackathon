@@ -1,12 +1,5 @@
 {
-  "name": "types",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
+  "name": "@thub/types",
+  "version": "1.0.0",
+  "main": "index.ts"
 }
