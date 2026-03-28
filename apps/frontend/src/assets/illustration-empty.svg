@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 280" fill="none">
+  <defs>
+    <linearGradient id="e-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0fdfa"/>
+      <stop offset="100%" stop-color="#fffbeb"/>
+    </linearGradient>
+    <radialGradient id="stage-light" cx="0.5" cy="0.3" r="0.5">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.18"/>
+      <stop offset="50%" stop-color="#fbbf24" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="spot-cone" cx="0.5" cy="0" r="0.8">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="360" height="280" rx="16" fill="url(#e-bg)"/>
+
+  <!-- Dot grid -->
+  <g opacity="0.03" fill="#14b8a6">
+    <circle cx="30" cy="30" r="1.5"/><circle cx="70" cy="30" r="1.5"/>
+    <circle cx="110" cy="30" r="1.5"/><circle cx="150" cy="30" r="1.5"/>
+    <circle cx="190" cy="30" r="1.5"/><circle cx="230" cy="30" r="1.5"/>
+    <circle cx="270" cy="30" r="1.5"/><circle cx="310" cy="30" r="1.5"/>
+    <circle cx="30" cy="70" r="1.5"/><circle cx="330" cy="70" r="1.5"/>
+    <circle cx="30" cy="110" r="1.5"/><circle cx="330" cy="110" r="1.5"/>
+    <circle cx="30" cy="210" r="1.5"/><circle cx="330" cy="210" r="1.5"/>
+    <circle cx="30" cy="250" r="1.5"/><circle cx="70" cy="250" r="1.5"/>
+    <circle cx="290" cy="250" r="1.5"/><circle cx="330" cy="250" r="1.5"/>
+  </g>
+
+  <!-- Spotlight cone -->
+  <path d="M180 20 L120 220 Q180 240 240 220 Z" fill="url(#spot-cone)"/>
+
+  <!-- Stage glow -->
+  <circle cx="180" cy="160" r="90" fill="url(#stage-light)"/>
+
+  <!-- Stage platform -->
+  <ellipse cx="180" cy="210" rx="60" ry="10" fill="#14b8a6" opacity="0.04"/>
+  <ellipse cx="180" cy="208" rx="45" ry="7" fill="#14b8a6" opacity="0.03"/>
+
+  <!-- Waiting star -->
+  <g transform="translate(180, 140)">
+    <path d="M0,-18 L4.2,-5.8 L17,-5.6 L6.8,2.2 L10.5,14.4 L0,7.7 L-10.5,14.4 L-6.8,2.2 L-17,-5.6 L-4.2,-5.8Z" fill="#fbbf24" opacity="0.3"/>
+    <path d="M0,-12 L2.8,-3.9 L11.3,-3.7 L4.5,1.5 L7,9.6 L0,5.1 L-7,9.6 L-4.5,1.5 L-11.3,-3.7 L-2.8,-3.9Z" fill="#fbbf24" opacity="0.5"/>
+    <circle cx="0" cy="0" r="22" fill="#fbbf24" opacity="0.06"/>
+  </g>
+
+  <!-- Ghost person outlines -->
+  <g opacity="0.06" stroke="#14b8a6" fill="none" stroke-width="1.5" stroke-dasharray="4 3">
+    <circle cx="90" cy="140" r="12"/>
+    <path d="M76 162 C76 152 104 152 104 162 L104 176 Q104 180 100 180 L80 180 Q76 180 76 176Z"/>
+    <circle cx="270" cy="145" r="12"/>
+    <path d="M256 167 C256 157 284 157 284 167 L284 181 Q284 185 280 185 L260 185 Q256 185 256 181Z"/>
+  </g>
+
+  <!-- Sparkles -->
+  <g fill="#fbbf24">
+    <path d="M100 80 L101.5 76 L103 80 L107 81.5 L103 83 L101.5 87 L100 83 L96 81.5Z" opacity="0.2"/>
+    <path d="M270 90 L271 87 L272 90 L275 91 L272 92 L271 95 L270 92 L267 91Z" opacity="0.15"/>
+    <path d="M140 230 L141 228 L142 230 L144 231 L142 232 L141 234 L140 232 L138 231Z" opacity="0.15"/>
+    <path d="M230 235 L231 233 L232 235 L234 236 L232 237 L231 239 L230 237 L228 236Z" opacity="0.15"/>
+  </g>
+  <g fill="#14b8a6">
+    <path d="M310 180 L311 178 L312 180 L314 181 L312 182 L311 184 L310 182 L308 181Z" opacity="0.08"/>
+    <path d="M50 175 L51 173 L52 175 L54 176 L52 177 L51 179 L50 177 L48 176Z" opacity="0.08"/>
+  </g>
+</svg>
