@@ -2,7 +2,6 @@
 
 import type { ServerWebSocket } from 'bun';
 import type { ChecklistProgress, InterviewPhase } from './sessions';
-import { log } from './logger';
 
 export type WsData = { sessionId: string };
 
@@ -10,7 +9,6 @@ export type InterviewWsEvent =
   | { type: 'assessment'; score: number; notes: string }
   | { type: 'phase'; phase: InterviewPhase }
   | { type: 'checklist'; items: ChecklistProgress[] }
-  | { type: 'lock' }
   | { type: 'unmute' }
   | { type: 'block'; seconds: number }
   | { type: 'complete'; transcript: string; assessmentLog: string[] };
@@ -38,7 +36,6 @@ export function unsubscribe(ws: ServerWebSocket<WsData>) {
 export function broadcast(sessionId: string, event: InterviewWsEvent) {
   const set = subs.get(sessionId);
   if (!set || set.size === 0) return;
-  log(sessionId).debug('ws', `broadcast ${event.type}`, event.type === 'assessment' ? { score: event.score } : undefined);
   const json = JSON.stringify(event);
   for (const ws of set) {
     try {

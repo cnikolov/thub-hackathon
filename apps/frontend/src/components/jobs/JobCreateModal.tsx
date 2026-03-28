@@ -29,9 +29,10 @@ type InterviewRoundDraft = {
 };
 
 const DEFAULT_CHECKLIST: ChecklistItemDraft[] = [
-  { id: 'cl-availability', label: 'Availability & notice period', required: true },
+  { id: 'cl-start', label: 'When can you start?', required: true },
   { id: 'cl-salary', label: 'What are your salary expectations?', required: true },
   { id: 'cl-remote', label: 'Are you open to remote / hybrid / on-site?', required: true },
+  { id: 'cl-notice', label: 'What is your notice period?', required: true },
 ];
 
 const DEFAULT_INTRO_PROMPT = `1. Greet the candidate warmly. Introduce yourself as the AI interview assistant.

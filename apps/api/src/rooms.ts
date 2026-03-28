@@ -12,7 +12,6 @@ import {
   cleanupSession,
   signalMicMuted,
 } from './interview';
-import { log } from './interview/logger';
 
 const sqlite = new Database('dev.db');
 const db = drizzle(sqlite);
@@ -166,21 +165,6 @@ roomsController.post('/interview-session/:sessionId/mic-muted', async (c) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to signal mic state';
     return c.json({ success: false, error: message }, 500);
-  }
-});
-
-roomsController.post('/interview-session/:sessionId/log', async (c) => {
-  const sessionId = c.req.param('sessionId');
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const level = (['debug', 'info', 'warn', 'error'].includes(body.level) ? body.level : 'info') as 'debug' | 'info' | 'warn' | 'error';
-    const area = typeof body.area === 'string' ? `client:${body.area}` : 'client';
-    const msg = typeof body.msg === 'string' ? body.msg : '';
-    const extra = typeof body.extra === 'object' && body.extra ? body.extra : undefined;
-    log(sessionId)[level](area, msg, extra);
-    return c.json({ success: true });
-  } catch {
-    return c.json({ success: true });
   }
 });
 

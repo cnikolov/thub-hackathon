@@ -6,7 +6,6 @@ export type InterviewWsEvent =
   | { type: 'assessment'; score: number; notes: string }
   | { type: 'phase'; phase: string }
   | { type: 'checklist'; items: { id: string; label: string; required: boolean; covered: boolean }[] }
-  | { type: 'lock' }
   | { type: 'unmute' }
   | { type: 'block'; seconds: number }
   | { type: 'complete'; transcript: string; assessmentLog: string[] };

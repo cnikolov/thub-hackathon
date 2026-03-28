@@ -25,7 +25,6 @@ import { api, type ApiResult } from '../lib/api';
 import { connectInterviewWs, type InterviewWsEvent } from '../lib/ws';
 import type { Candidate, Job, JobInterviewStep } from '../lib/types';
 import { cn } from '../lib/utils';
-import { slog, initSessionLog, clearSessionLog } from '../lib/sessionLog';
 
 function getSortedSteps(job: Job): JobInterviewStep[] {
   const s = job.interviewSteps ?? [];
@@ -428,20 +427,20 @@ function FishjamInterviewRoom({
       if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
       setBlockCountdown(null);
       unlockMic();
-      slog.info('mic', 'block expired — auto-unlocking');
+      console.log('[Mic] Block expired — auto-unlocking');
     }, seconds * 1000);
   }, [lockMic, unlockMic]);
 
   // AI unlock handler — called when the 'unmute' WS event arrives.
   const toggleMicrophoneMuteRef = useRef(async (forceUnmute: boolean) => {
     if (forceUnmute) {
-      slog.debug('mic', 'AI unlock');
+      console.log('[Mic] AI unlock');
       unlockMic();
     }
   });
   toggleMicrophoneMuteRef.current = async (forceUnmute: boolean) => {
     if (forceUnmute) {
-      slog.debug('mic', 'AI unlock');
+      console.log('[Mic] AI unlock');
       unlockMic();
     }
   };
@@ -531,8 +530,6 @@ function FishjamInterviewRoom({
 
         await api.post(`/rooms/interview-session/${sessionData.sessionId}/start`, { stepIndex: pipelineIndex });
         if (cancelled) return;
-        initSessionLog(sessionData.sessionId);
-        slog.info('session', 'joined and started');
         setIsActive(true);
       } catch (err) {
         if (!cancelled) console.error('Failed to join room:', err);
@@ -540,7 +537,6 @@ function FishjamInterviewRoom({
     })();
     return () => {
       cancelled = true;
-      clearSessionLog();
       stopMicrophone();
       leaveRoom();
     };
@@ -562,22 +558,16 @@ function FishjamInterviewRoom({
         case 'checklist':
           setChecklist(event.items);
           break;
-        case 'lock':
-          slog.debug('mic', 'AI speaking — locking');
-          lockMic();
-          break;
         case 'unmute':
-          slog.info('mic', 'AI requested unmute — unlocking');
+          console.log('[Interview] AI requested unmute — unlocking mic');
           toggleMicrophoneMuteRef.current(true);
           break;
         case 'block':
-          slog.info('mic', `AI blocking for ${event.seconds}s`);
+          console.log(`[Interview] AI blocking interruptions for ${event.seconds}s`);
           blockMicFor(event.seconds);
           break;
         case 'complete':
-          slog.info('session', 'interview complete');
           completedRef.current = true;
-          clearSessionLog();
           leaveRoomRef.current();
           onCompleteRef.current(event.transcript, event.assessmentLog);
           break;
@@ -677,7 +667,6 @@ function FishjamInterviewRoom({
               onClick={() => {
                 if (micLockedByAi) return;
                 const willMute = !isMicrophoneMuted;
-                slog.info('mic', willMute ? 'user muted' : 'user unmuted');
                 toggleMicrophoneMute();
                 api.post(`/rooms/interview-session/${sessionData.sessionId}/mic-muted`, { muted: willMute }).catch(() => {});
               }}

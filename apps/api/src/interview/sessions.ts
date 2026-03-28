@@ -7,8 +7,7 @@ import type {
   TrackId,
 } from '@fishjam-cloud/js-server-sdk';
 import { broadcast } from './ws';
-import { clearAudioBuffer, clearVad } from './gemini';
-import { log, dropLogger } from './logger';
+import { clearAudioBuffer } from './gemini';
 
 // ── Public status shape returned to the frontend ──────────────────────────
 
@@ -72,8 +71,6 @@ export type ActiveSession = {
   videoFrameTimer: ReturnType<typeof setInterval> | null;
   /** AI called promptCandidate — frontend should unmute. */
   unmuteRequested: boolean;
-  /** True while the AI is producing audio for its current turn. */
-  aiSpeaking: boolean;
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -83,24 +80,19 @@ export const sessions = new Map<string, ActiveSession>();
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 export function teardown(s: ActiveSession) {
-  log(s.sessionId).info('session', 'teardown');
   clearAudioBuffer(s.sessionId);
-  clearVad(s.sessionId);
   if (s.inactivityTimer) { clearInterval(s.inactivityTimer); s.inactivityTimer = null; }
   if (s.videoFrameTimer) { clearInterval(s.videoFrameTimer); s.videoFrameTimer = null; }
   try { s.geminiSession?.close(); } catch { /* */ }
   try { s.agent.disconnect(); } catch { /* */ }
   s.deleteRoom().catch(() => {});
-  dropLogger(s.sessionId);
 }
 
 export function markComplete(session: ActiveSession) {
   if (session.status === 'complete') return;
-  log(session.sessionId).info('session', 'interview complete', { score: session.assessment.score });
   session.status = 'complete';
   session.phase = 'complete';
   clearAudioBuffer(session.sessionId);
-  clearVad(session.sessionId);
   if (session.inactivityTimer) { clearInterval(session.inactivityTimer); session.inactivityTimer = null; }
   if (session.videoFrameTimer) { clearInterval(session.videoFrameTimer); session.videoFrameTimer = null; }
   try { session.geminiSession?.close(); } catch { /* */ }
@@ -124,9 +116,9 @@ export function touchActivity(session: ActiveSession) {
 
 // ── Inactivity monitor ───────────────────────────────────────────────────
 
-const NUDGE_AFTER_MS = 15_000;
-const KICK_AFTER_MS = 45_000;
-const CHECK_INTERVAL_MS = 3_000;
+const NUDGE_AFTER_MS = 5_000;
+const KICK_AFTER_MS = 30_000;
+const CHECK_INTERVAL_MS = 2_000;
 
 export function startInactivityMonitor(session: ActiveSession) {
   if (session.inactivityTimer) return;
@@ -143,7 +135,6 @@ export function startInactivityMonitor(session: ActiveSession) {
     const idle = Date.now() - session.lastActivityAt;
 
     if (idle >= KICK_AFTER_MS && session.nudgeSent) {
-      log(session.sessionId).warn('inactivity', 'kick — ending interview', { idleMs: idle });
       try {
         session.geminiSession?.sendRealtimeInput({
           text: 'The candidate has been unresponsive for 30 seconds after your check-in. Politely end the interview — say "It seems like you may have stepped away. I\'ll wrap up for now — thanks for your time!" Then call completeInterview.',
@@ -154,10 +145,9 @@ export function startInactivityMonitor(session: ActiveSession) {
 
     if (idle >= NUDGE_AFTER_MS && !session.nudgeSent) {
       session.nudgeSent = true;
-      log(session.sessionId).info('inactivity', 'nudge sent', { idleMs: idle });
       try {
         session.geminiSession?.sendRealtimeInput({
-          text: 'The candidate has been quiet for a while. Say ONE short sentence to check in — e.g. "Take your time!" or "Still with me?" Do NOT repeat your question. Do NOT say "got it" or react as if they spoke. Just a brief, friendly check-in. Then call promptCandidate and wait.',
+          text: 'The candidate has been silent for a few seconds. Briefly repeat your last question or ask "Can you hear me?" to check the connection. Keep it short — one sentence max.',
         });
       } catch { /* */ }
     }
